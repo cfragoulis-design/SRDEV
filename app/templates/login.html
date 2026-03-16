@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="max-w-md mx-auto mt-10 bg-slate-900/60 border border-slate-800 rounded-2xl p-6">
+    <div class="flex justify-center mb-4">
+    <img src="/static/logo-full.png" alt="Sklavounos" class="h-24 w-auto max-w-full" />
+  </div>
+<h1 class="text-xl font-semibold mb-4">Admin Login</h1>
+  {% if error %}
+    <div class="mb-4 text-red-300 bg-red-900/30 border border-red-800 rounded-xl px-3 py-2">{{ error }}</div>
+  {% endif %}
+  <form method="post" action="/login" class="space-y-3">
+    <div>
+      <label class="text-sm text-slate-300">Username</label>
+      <input name="username" class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2" required>
+    </div>
+    <div>
+      <label class="text-sm text-slate-300">Password</label>
+      <input type="password" name="password" class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2" required>
+    </div>
+    <button class="w-full bg-indigo-600 hover:bg-indigo-500 rounded-xl py-2 font-medium">Login</button>
+  </form>
+</div>
+{% endblock %}

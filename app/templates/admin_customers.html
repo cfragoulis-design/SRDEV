@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block content %}
+{% include "admin_nav.html" %}
+
+<div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+  <div class="lg:col-span-1 bg-slate-900/60 border border-slate-1000 rounded-2xl p-5">
+    <h2 class="font-semibold mb-3">Νέος Πελάτης</h2>
+    <form method="post" action="/admin/customers/create" class="space-y-3">
+      <div>
+        <label class="text-sm text-slate-300">Όνομα</label>
+        <input name="name" class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2" required>
+      </div>
+      <div>
+        <label class="text-sm text-slate-300">ΑΦΜ</label>
+        <input class="w-full bg-slate-950/60 border border-slate-800 rounded-xl px-3 py-2 text-slate-100"
+               type="text" name="afm" required pattern="[0-9]{9}" maxlength="9" inputmode="numeric"
+               placeholder="9 ψηφία" />
+      </div>
+
+      <div>
+        <label class="text-sm text-slate-300">PIN</label>
+        <input name="pin" class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2" required>
+      </div>
+      <button class="w-full bg-emerald-600 hover:bg-emerald-500 rounded-xl py-2 font-medium">Create</button>
+    </form>
+  </div>
+
+  <div class="lg:col-span-3 bg-slate-900/40 border border-slate-800 rounded-2xl overflow-x-auto">
+    <table class="w-full text-sm min-w-[1400px]">
+      <thead class="bg-slate-900">
+        <tr class="text-slate-300">
+          <th class="text-left px-4 py-3">Name</th>
+          <th class="text-left px-4 py-3">Slug</th>
+          <th class="text-left px-4 py-3">Edit Slug</th>
+          <th class="text-left px-4 py-3">Delete</th>
+          <th class="text-left px-4 py-3">Portal</th>
+          <th class="text-left px-4 py-3">Restaurant Card</th>
+          <th class="text-left px-4 py-3">Status</th>
+          <th class="text-left px-4 py-3">Rotate PIN</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in customers %}
+        <tr class="border-t border-slate-800 {% if not c.is_active %}opacity-60{% endif %}">
+          <td class="px-4 py-3 font-medium">{{ c.name }}</td>
+          <td class="px-4 py-3 text-slate-300">{{ c.slug }}</td>
+          <td class="px-4 py-3">
+            <form method="post" action="/admin/customers/{{ c.id }}/update" class="flex gap-2 items-center">
+              <input type="hidden" name="name" value="{{ c.name }}">
+              <input type="hidden" name="afm" value="{{ c.afm }}">
+              <input name="slug" value="{{ c.slug }}" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 w-44" placeholder="slug">
+              <button class="bg-slate-900 border border-slate-800 hover:bg-slate-800 rounded-xl px-3 py-2">Save</button>
+            </form>
+          </td>
+          <td class="px-4 py-3">
+            <form method="post" action="/admin/customers/{{ c.id }}/delete" onsubmit="return confirm('Να γίνει διαγραφή/απενεργοποίηση;\n\nΑν υπάρχουν παραγγελίες, ο πελάτης θα απενεργοποιηθεί και θα μετονομαστεί ώστε να μπορείς να τον ξαναπεράσεις.');">
+              <button class="bg-rose-900/40 border border-rose-800 hover:bg-rose-900/60 text-rose-200 rounded-xl px-3 py-2">Delete</button>
+            </form>
+          </td>
+          <td class="px-4 py-3">
+            <a class="text-indigo-300 hover:underline" href="/p/{{ c.slug }}" target="_blank">/p/{{ c.slug }}</a>
+          </td>
+          <td class="px-4 py-3">
+            <a class="bg-slate-900 border border-slate-800 hover:bg-slate-800 rounded-xl px-3 py-2 inline-flex" href="/admin/restaurants/{{ c.id }}">Open</a>
+          </td>
+          <td class="px-4 py-3">
+            <form method="post" action="/admin/customers/{{ c.id }}/toggle_active">
+              <button class="px-3 py-1 rounded-lg border {% if c.is_active %}border-emerald-700/60 text-emerald-200 hover:bg-emerald-900/30{% else %}border-slate-700 text-slate-300 hover:bg-slate-800/40{% endif %}">
+                {% if c.is_active %}Active{% else %}Inactive{% endif %}
+              </button>
+            </form>
+          </td>
+          <td class="px-4 py-3">
+            <form method="post" action="/admin/customers/{{ c.id }}/rotate-pin" class="flex gap-2">
+              <input name="new_pin" placeholder="New PIN" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 w-32" required>
+              <button class="bg-slate-900 border border-slate-800 hover:bg-slate-800 rounded-xl px-3 py-2">Save</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

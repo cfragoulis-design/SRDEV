@@ -1,0 +1,400 @@
+
+{% extends "base.html" %}
+{% block content %}
+{% include "admin_nav.html" %}
+
+<div class="mb-4 {% if completed %}bg-emerald-900/20 border border-emerald-800/50 rounded-2xl px-4 py-3{% endif %}">
+  <div class="text-sm text-slate-400">Full Order</div>
+  <h1 class="text-xl font-semibold">{{ customer.name }}</h1>
+  <div class="text-sm text-slate-400">{{ date.isoformat() }} • Order #{{ order.id }} • Source: {{ order.source }} • Status: {{ order.status }}</div>
+</div>
+
+{% if locked %}
+  <div class="mb-4 bg-amber-900/30 border border-amber-800 text-amber-200 rounded-2xl px-4 py-3 text-sm">
+    Η παραγγελία είναι κλειδωμένη (cutoff: <b>{{ cutoff_hhmm }}</b>). Για αλλαγές τσέκαρε <b>Override lock</b>.
+  </div>
+{% endif %}
+
+{% if customer.area_route or customer.delivery_days or customer.notes %}
+  <div class="mb-4 bg-slate-900/40 border border-slate-800 rounded-2xl px-4 py-3 text-sm">
+    <div class="flex flex-wrap gap-x-6 gap-y-2">
+      {% if customer.area_route %}
+        <div><span class="text-slate-400">Δρομολόγιο:</span> <span class="text-slate-200 font-medium">{{ customer.area_route }}</span></div>
+      {% endif %}
+      {% if customer.delivery_days %}
+        <div><span class="text-slate-400">Ημέρες παράδοσης:</span> <span class="text-slate-200 font-medium">{{ customer.delivery_days }}</span></div>
+      {% endif %}
+    </div>
+    {% if customer.notes %}
+      <div class="mt-2 text-slate-200">
+        <span class="text-slate-400">Σημειώσεις:</span>
+        <div class="mt-1 whitespace-pre-wrap">{{ customer.notes }}</div>
+      </div>
+    {% endif %}
+  </div>
+
+{% if customer.label_key %}
+  <div class="mb-4 flex items-center justify-end gap-2">
+    <button type="button"
+            class="js-print-label bg-slate-900/60 hover:bg-slate-800 text-slate-100 font-semibold px-3 py-2 rounded-xl border border-slate-800"
+            data-url="/admin/restaurants/{{ customer.id }}/print-label?station=CENTRAL">🏷 Print (Central)</button>
+    <button type="button"
+            class="js-print-copies-trigger bg-slate-950/30 hover:bg-slate-900 text-slate-300 font-semibold px-2.5 py-2 rounded-xl border border-slate-800"
+            data-station="CENTRAL"
+            data-url="/admin/restaurants/{{ customer.id }}/print-label?station=CENTRAL">×</button>
+
+    <button type="button"
+            class="js-print-label bg-slate-900/60 hover:bg-slate-800 text-slate-100 font-semibold px-3 py-2 rounded-xl border border-slate-800"
+            data-url="/admin/restaurants/{{ customer.id }}/print-label?station=WORKSHOP">🏷 Print (Workshop)</button>
+    <button type="button"
+            class="js-print-copies-trigger bg-slate-950/30 hover:bg-slate-900 text-slate-300 font-semibold px-2.5 py-2 rounded-xl border border-slate-800"
+            data-station="WORKSHOP"
+            data-url="/admin/restaurants/{{ customer.id }}/print-label?station=WORKSHOP">×</button>
+  </div>
+
+  <div id="sr-copies-pop" style="position:fixed; z-index:9998; display:none;">
+    <div class="bg-slate-950/90 border border-slate-800 rounded-xl shadow-lg p-2" style="min-width:170px;">
+      <div class="text-xs text-slate-300 mb-1">Copies</div>
+      <div class="flex items-center gap-2">
+        <input id="sr-copies-input" type="number" min="1" max="50" value="2"
+               class="w-20 bg-slate-950/60 border border-slate-800 rounded-lg px-2 py-1 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-600/40" />
+        <button id="sr-copies-print" type="button"
+                class="bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-semibold px-2.5 py-1.5 rounded-lg text-sm">Print</button>
+      </div>
+    </div>
+  </div>
+{% endif %}
+
+
+{% endif %}
+
+<form id="resetOrderForm" method="post" action="/admin/orders/{{ order.id }}/reset" class="hidden">
+  <input type="hidden" name="date_str" value="{{ date.isoformat() }}">
+</form>
+
+<form method="post" action="/admin/orders/{{ customer.id }}/full" class="space-y-4">
+  <input type="hidden" name="date_str" value="{{ date.isoformat() }}">
+  <input type="hidden" name="from" value="{{ from_page }}">
+
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div class="text-sm text-slate-400">Packed-first workflow (Ordered locks after submit)</div>
+    <div class="flex flex-wrap items-center gap-3">
+      <button type="submit"
+              form="resetOrderForm"
+              onclick="return confirm('Να γίνει reset της παραγγελίας και μηδενισμός όλων των ποσοτήτων;');"
+              class="text-sm bg-rose-900/70 hover:bg-rose-800 border border-rose-700 rounded-xl px-3 py-2 text-rose-100">↺ Reset Order</button>
+      <button id="fill_from_ordered" type="button" class="text-sm bg-slate-800 hover:bg-slate-700 rounded-xl px-3 py-2">Fill packed from ordered</button>
+      <label class="flex items-center gap-2 text-sm text-slate-200">
+        <input id="fill_from_ordered_cb" type="checkbox" class="h-4 w-4">
+        Fill packed from ordered
+      </label>
+      <label class="flex items-center gap-2 text-sm text-slate-200">
+        <input id="override_lock" type="checkbox" name="override_lock" value="1" class="h-4 w-4">
+        Override lock (edit ordered)
+      </label>
+    </div>
+  </div>
+
+  <div class="bg-slate-900/40 border border-slate-800 rounded-2xl overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-900">
+        <tr class="text-slate-300">
+          <th class="text-left px-4 py-3">Προϊόν</th>
+          <th class="text-left px-4 py-3">Μονάδα</th>
+          <th class="text-left px-4 py-3 w-40">Ordered</th>
+          <th class="text-left px-4 py-3 w-40">Packed</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for it in items %}
+          {% set p = it.p %}
+          {% set is_pcs = it.unit_code in ["pcs","τεμ","tem","piece","pieces"] %}
+          <tr class="border-t border-slate-800">
+            <td class="px-4 py-3 font-medium">{{ p.name }}</td>
+            <td class="px-4 py-3 text-slate-300">{{ it.unit_label }} ({{ it.unit_code }})</td>
+            <td class="px-4 py-3">
+              {% set qv = qty_map.get(p.id) %}
+              <input
+                name="qty_{{ p.id }}"
+                value="{% if qv == '' %}{% elif is_pcs %}{{ (qv|round(0,'common'))|int }}{% else %}{{ qv }}{% endif %}"
+                class="w-32 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 order-input ordered-input"
+                inputmode="{% if is_pcs %}numeric{% else %}decimal{% endif %}"
+                step="{% if is_pcs %}1{% else %}0.001{% endif %}"
+                min="0"
+                data-unit="{{ it.unit_code }}"
+              >
+            </td>
+            <td class="px-4 py-3">
+              <div class="flex items-center gap-3">
+                {% set pv = packed_map.get(p.id) %}
+                <input
+                  name="packed_{{ p.id }}"
+                  value="{% if pv == '' %}{% else %}{{ '%.2f'|format(pv|float) }}{% endif %}"
+                  class="w-32 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 order-input packed-input"
+                  inputmode="decimal"
+                  step="0.01"
+                  min="0"
+                  data-pid="{{ p.id }}"
+                  data-unit="{{ it.unit_code }}"
+                >
+                <span class="text-xs rounded-full px-2 py-1 border border-slate-700 text-slate-300 diff-badge" data-diff="{{ p.id }}">–</span>
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+        {% if items|length == 0 %}
+          <tr class="border-t border-slate-800">
+            <td colspan="4" class="px-4 py-6 text-slate-300">Δεν έχουν οριστεί προϊόντα για το εστιατόριο.</td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="bg-slate-900/40 border border-slate-800 rounded-2xl p-4">
+    <label class="text-sm text-slate-300">Σχόλιο</label>
+    <textarea name="comment" class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 order-input" rows="3">{{ comment }}</textarea>
+  </div>
+
+  <div class="flex justify-end">
+    <button class="bg-emerald-600 hover:bg-emerald-500 rounded-xl px-5 py-2 font-medium order-input" type="submit" name="action" value="save_close">Save and Close</button>
+  </div>
+</form>
+
+<script>
+(function(){
+  function toast(msg, ok){
+    let el = document.getElementById('sr-toast');
+    if (!el){
+      el = document.createElement('div');
+      el.id = 'sr-toast';
+      el.style.position = 'fixed';
+      el.style.right = '16px';
+      el.style.bottom = '16px';
+      el.style.zIndex = '9999';
+      el.style.padding = '10px 12px';
+      el.style.borderRadius = '12px';
+      el.style.border = '1px solid rgba(148,163,184,.25)';
+      el.style.backdropFilter = 'blur(8px)';
+      el.style.background = 'rgba(2,6,23,.75)';
+      el.style.color = '#e2e8f0';
+      el.style.fontSize = '13px';
+      document.body.appendChild(el);
+    }
+    el.textContent = msg;
+    el.style.borderColor = ok ? 'rgba(16,185,129,.55)' : 'rgba(244,63,94,.55)';
+    el.style.opacity = '1';
+    clearTimeout(el._t);
+    el._t = setTimeout(() => { el.style.opacity = '0'; }, 1800);
+  }
+
+  async function post(url){
+    const res = await fetch(url, { method: 'POST', credentials: 'same-origin' });
+    return res;
+  }
+  async function postForm(url, form){
+    const res = await fetch(url, { method: 'POST', credentials: 'same-origin', body: form });
+    return res;
+  }
+
+  document.querySelectorAll('.js-print-label').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const url = btn.getAttribute('data-url');
+      try{
+        const res = await post(url);
+        toast(res.ok ? 'Print queued' : 'Print failed', res.ok);
+      }catch(e){
+        toast('Print failed', false);
+      }
+    });
+  });
+
+  const pop = document.getElementById('sr-copies-pop');
+  const input = document.getElementById('sr-copies-input');
+  const btnPrint = document.getElementById('sr-copies-print');
+  if(!pop || !input || !btnPrint) return;
+
+  let currentUrl = null;
+  let currentStation = null;
+
+  function clamp(n){
+    n = parseInt(n || '1', 10);
+    if(!Number.isFinite(n)) n = 1;
+    return Math.max(1, Math.min(50, n));
+  }
+
+  function openPop(anchor, station, url){
+    currentUrl = url;
+    currentStation = station;
+    const key = `sr_print_copies_${station}`;
+    const saved = localStorage.getItem(key);
+    input.value = clamp(saved || 2);
+
+    const r = anchor.getBoundingClientRect();
+    pop.style.left = Math.max(12, Math.min(window.innerWidth - 220, r.right - 210)) + 'px';
+    pop.style.top = (r.bottom + 8) + 'px';
+    pop.style.display = 'block';
+    input.focus();
+    input.select();
+  }
+
+  function closePop(){ pop.style.display = 'none'; currentUrl = null; currentStation = null; }
+
+  document.querySelectorAll('.js-print-copies-trigger').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openPop(btn, btn.getAttribute('data-station') || 'CENTRAL', btn.getAttribute('data-url'));
+    });
+  });
+
+  btnPrint.addEventListener('click', async () => {
+    if(!currentUrl) return;
+    const copies = clamp(input.value);
+    if(currentStation) localStorage.setItem(`sr_print_copies_${currentStation}`, String(copies));
+
+    const fd = new FormData();
+    fd.append('copies', String(copies));
+
+    try{
+      const res = await postForm(currentUrl, fd);
+      toast(res.ok ? `Print queued (x${copies})` : 'Print failed', res.ok);
+    }catch(e){
+      toast('Print failed', false);
+    }
+    closePop();
+  });
+
+  document.addEventListener('click', (e) => {
+    if(pop.style.display === 'none') return;
+    if(e.target.closest('#sr-copies-pop')) return;
+    closePop();
+  });
+
+  document.addEventListener('keydown', (e) => { if(e.key === 'Escape') closePop(); });
+})();
+</script>
+
+<script>
+(function () {
+  const locked = {{ "true" if locked else "false" }};
+  const cb = document.getElementById("override_lock");
+  const orderedInputs = Array.from(document.querySelectorAll(".ordered-input"));
+  const packedInputs = Array.from(document.querySelectorAll(".packed-input"));
+  const otherInputs = Array.from(document.querySelectorAll("textarea.order-input, button.order-input"));
+  const fillBtn = document.getElementById("fill_from_ordered");
+  const fillCb = document.getElementById("fill_from_ordered_cb");
+
+  function num(v) {
+    if (v === null || v === undefined) return null;
+    const s = String(v).trim().replace(',', '.');
+    if (!s) return null;
+    const x = Number(s);
+    return Number.isFinite(x) ? x : null;
+  }
+
+  function isPcs(unit) {
+    return unit === 'pcs' || unit === 'τεμ' || unit === 'tem' || unit === 'piece' || unit === 'pieces';
+  }
+
+  function formatDiff(d, unit) {
+    if (d === null) return "–";
+    const sign = d > 0 ? "+" : "";
+    const abs = Math.abs(d);
+    if (isPcs(unit)) {
+      return sign + abs.toFixed(0);
+    }
+    const txt = abs >= 10 ? abs.toFixed(0) : (abs >= 1 ? abs.toFixed(2) : abs.toFixed(3));
+    return sign + txt;
+  }
+
+  function updateDiffBadges() {
+    packedInputs.forEach(pi => {
+      const pid = pi.getAttribute('data-pid');
+      const oi = document.querySelector(`input[name="qty_${pid}"]`);
+      const badge = document.querySelector(`.diff-badge[data-diff="${pid}"]`);
+      if (!oi || !badge) return;
+      const o = num(oi.value);
+      const p = num(pi.value);
+      if (o === null || p === null) {
+        badge.textContent = "–";
+        badge.className = "text-xs rounded-full px-2 py-1 border border-slate-700 text-slate-300 diff-badge";
+        return;
+      }
+      const unit = pi.getAttribute('data-unit') || oi.getAttribute('data-unit') || 'kg';
+
+      // Packed is always KG in this workflow; if ordered is PCS, the diff vs ordered is not meaningful.
+      if (isPcs(unit)) {
+        badge.textContent = "—";
+        badge.className = "text-xs rounded-full px-2 py-1 border border-slate-700 text-slate-300 diff-badge";
+        return;
+      }
+
+      const d = p - o;
+      badge.textContent = formatDiff(d, unit);
+      // status coloring
+      const ad = Math.abs(d);
+      let cls = "text-slate-200 border-slate-700";
+      if (ad < 1e-9) {
+        cls = "text-emerald-200 border-emerald-800 bg-emerald-900/20";
+      } else if (!isPcs(unit) && ad <= 0.2) {
+        cls = "text-amber-200 border-amber-800 bg-amber-900/20";
+      } else {
+        cls = "text-rose-200 border-rose-800 bg-rose-900/20";
+      }
+      badge.className = `text-xs rounded-full px-2 py-1 border diff-badge ${cls}`;
+    });
+  }
+
+  function applyLockState() {
+    if (!locked) {
+      // Fully editable when not locked
+      orderedInputs.forEach(el => el.disabled = false);
+      packedInputs.forEach(el => el.disabled = false);
+      if (fillBtn) fillBtn.disabled = false;
+      updateDiffBadges();
+      return;
+    }
+    // Locked: packed stays editable; ordered only if override
+    packedInputs.forEach(el => el.disabled = false);
+    if (fillBtn) fillBtn.disabled = false;
+    orderedInputs.forEach(el => el.disabled = !cb.checked);
+    updateDiffBadges();
+  }
+
+  packedInputs.forEach(el => el.addEventListener('input', updateDiffBadges));
+
+  if (cb) cb.addEventListener("change", applyLockState);
+
+  if (fillBtn) {
+    fillBtn.addEventListener('click', () => {
+      packedInputs.forEach(pi => {
+        const pid = pi.getAttribute('data-pid');
+        const oi = document.querySelector(`input[name="qty_${pid}"]`);
+        if (!oi) return;
+        // only fill if packed empty
+        if (String(pi.value || '').trim() === '') pi.value = oi.value;
+      });
+
+    if (fillCb) {
+      fillCb.addEventListener('change', () => {
+        if (!fillCb.checked) return;
+        packedInputs.forEach(pi => {
+          const pid = pi.getAttribute('data-pid');
+          const oi = document.querySelector(`input[name="qty_${pid}"]`);
+          if (!oi) return;
+          if (String(pi.value || '').trim() === '') pi.value = oi.value;
+        });
+        updateDiffBadges();
+        // auto-uncheck so it behaves like a one-shot action
+        fillCb.checked = false;
+      });
+    }
+      updateDiffBadges();
+    });
+  }
+
+  applyLockState();
+})();
+</script>
+
+{% endblock %}

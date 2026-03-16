@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+{% block content %}
+{% include "admin_nav.html" %}
+
+<div class="flex items-center justify-between mb-4">
+  <div>
+    <div class="text-sm text-slate-400">Manual / Admin Order</div>
+    <h1 class="text-xl font-semibold">{{ customer.name }}</h1>
+  </div>
+
+  <form method="get" action="/admin/order" class="flex flex-wrap items-center gap-2">
+    <label class="text-sm text-slate-300">Restaurant</label>
+    <select name="customer_id" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2" onchange="this.form.submit()">
+      {% for c in customers %}
+        <option value="{{ c.id }}" {% if c.id == customer.id %}selected{% endif %}>{{ c.name }}</option>
+      {% endfor %}
+    </select>
+
+    <label class="text-sm text-slate-300 ml-2">Ημερομηνία</label>
+    <input type="date" name="date_str" value="{{ date.isoformat() }}" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2" onchange="this.form.submit()">
+    <button class="bg-slate-900 border border-slate-800 hover:bg-slate-800 rounded-xl px-3 py-2">Open</button>
+  </form>
+</div>
+
+{% if error %}
+  <div class="mb-4 bg-rose-900/30 border border-rose-800 text-rose-200 rounded-2xl px-4 py-3">
+    {{ error }}
+  </div>
+{% endif %}
+
+{% if locked %}
+  <div class="mb-4 bg-amber-900/30 border border-amber-800 text-amber-200 rounded-2xl px-4 py-3">
+    Η παραγγελία είναι κλειδωμένη (cutoff: <b>{{ cutoff_hhmm }}</b> την προηγούμενη ημέρα).
+    Για αλλαγές, χρησιμοποίησε <b>Override</b> (μόνο όταν είναι απαραίτητο).
+  </div>
+{% endif %}
+
+{% if customer.area_route or customer.delivery_days or customer.notes %}
+  <div class="mb-4 bg-slate-900/40 border border-slate-800 rounded-2xl px-4 py-3 text-sm">
+    <div class="flex flex-wrap gap-x-6 gap-y-2">
+      {% if customer.area_route %}
+        <div><span class="text-slate-400">Δρομολόγιο:</span> <span class="text-slate-200 font-medium">{{ customer.area_route }}</span></div>
+      {% endif %}
+      {% if customer.delivery_days %}
+        <div><span class="text-slate-400">Ημέρες παράδοσης:</span> <span class="text-slate-200 font-medium">{{ customer.delivery_days }}</span></div>
+      {% endif %}
+    </div>
+    {% if customer.notes %}
+      <div class="mt-2 text-slate-200">
+        <span class="text-slate-400">Σημειώσεις:</span>
+        <div class="mt-1 whitespace-pre-wrap">{{ customer.notes }}</div>
+      </div>
+    {% endif %}
+  </div>
+{% endif %}
+
+<form method="post" action="/admin/order" class="space-y-4">
+  <input type="hidden" name="customer_id" value="{{ customer.id }}">
+  <input type="hidden" name="date_str" value="{{ date.isoformat() }}">
+
+  <div class="flex items-center justify-between">
+    <div class="text-sm text-slate-400">
+      Source: <span class="text-slate-200 font-medium">PHONE</span>
+    </div>
+
+    <label class="flex items-center gap-2 text-sm text-slate-200">
+      <input id="override_lock" type="checkbox" name="override_lock" value="1" class="h-4 w-4">
+      Override lock
+    </label>
+  </div>
+
+  <div class="bg-slate-900/40 border border-slate-800 rounded-2xl overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-900">
+        <tr class="text-slate-300">
+          <th class="text-left px-4 py-3">Προϊόν</th>
+          <th class="text-left px-4 py-3">Μονάδα</th>
+          <th class="text-left px-4 py-3 w-40">Ordered</th>
+          <th class="text-left px-4 py-3 w-64">Packed</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for cp, p, u in items %}
+        <tr class="border-t border-slate-800">
+          <td class="px-4 py-3 font-medium">{{ p.name }}</td>
+          <td class="px-4 py-3 text-slate-300">{{ u.label_el }}</td>
+          <td class="px-4 py-3">
+            <input name="qty_{{ p.id }}" value="{{ qty_map.get(p.id, '') }}"
+              class="w-32 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 order-input"
+              {% if locked %}disabled{% endif %} inputmode="decimal">
+          </td>
+          <td class="px-4 py-3">
+            <div class="flex items-center gap-2">
+              <input id="packed_{{ p.id }}" value="{{ packed_map.get(p.id, '') }}"
+                class="w-32 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2" inputmode="decimal">
+
+              <button type="button"
+                class="bg-slate-900 border border-slate-700 hover:bg-slate-800 rounded-xl px-3 py-1.5 text-xs"
+                onclick="srPackedSetOrdered({{ p.id }})">= Ordered</button>
+
+              <button type="button"
+                class="bg-emerald-700/80 border border-emerald-700 hover:bg-emerald-600 rounded-xl px-3 py-1.5 text-xs"
+                onclick="srPackedSave({{ p.id }})">Save</button>
+
+              <span id="packed_status_{{ p.id }}" class="text-xs text-slate-400"></span>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+
+        {% if items|length == 0 %}
+        <tr class="border-t border-slate-800">
+          <td colspan="4" class="px-4 py-6 text-slate-300">
+            Δεν έχουν οριστεί προϊόντα για το εστιατόριο.
+          </td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="bg-slate-900/40 border border-slate-800 rounded-2xl p-4">
+    <label class="text-sm text-slate-300">Σχόλιο (προαιρετικό)</label>
+    <textarea name="comment" class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 order-input" rows="3"
+      {% if locked %}disabled{% endif %}>{{ comment }}</textarea>
+  </div>
+
+  <div class="flex justify-end">
+    <button class="bg-emerald-600 hover:bg-emerald-500 rounded-xl px-5 py-2 font-medium order-input" {% if locked %}disabled{% endif %}>
+      Save
+    </button>
+  </div>
+</form>
+
+<script>
+(function(){
+  // -------- Packed (weighed) save helpers --------
+  window.srPackedSetOrdered = function(pid){
+    const ordered = document.querySelector(`input[name="qty_${pid}"]`);
+    const packed = document.getElementById(`packed_${pid}`);
+    if(!ordered || !packed) return;
+    packed.value = ordered.value || '';
+  }
+
+  function setStatus(pid, text, isError){
+    const el = document.getElementById(`packed_status_${pid}`);
+    if(!el) return;
+    el.textContent = text;
+    el.className = `text-xs ${isError ? 'text-rose-300' : 'text-slate-400'}`;
+  }
+
+  window.srPackedSave = async function(pid){
+    const packed = document.getElementById(`packed_${pid}`);
+    if(!packed) return;
+    setStatus(pid, 'Saving…', false);
+
+    const body = new URLSearchParams();
+    body.set('customer_id', '{{ customer.id }}');
+    body.set('date_str', '{{ date.isoformat() }}');
+    body.set('product_id', String(pid));
+    body.set('packed_qty', packed.value || '');
+
+    try{
+      const res = await fetch('/admin/order/packed', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+        credentials: 'same-origin'
+      });
+      const data = await res.json();
+      if(!res.ok || !data.ok){
+        setStatus(pid, data.error || 'Error', true);
+        return;
+      }
+      // Normalize display
+      packed.value = (data.packed_qty ?? 0).toFixed(3).replace(/\.000$/, '');
+      setStatus(pid, 'Saved', false);
+      setTimeout(()=>setStatus(pid,'',false), 1500);
+    }catch(e){
+      setStatus(pid, 'Network error', true);
+    }
+  }
+})();
+
+(function () {
+  const locked = {{ "true" if locked else "false" }};
+  if (!locked) return;
+
+  const cb = document.getElementById("override_lock");
+  const inputs = Array.from(document.querySelectorAll(".order-input"));
+
+  function setEnabled(enabled) {
+    inputs.forEach(el => { el.disabled = !enabled; });
+  }
+
+  // default: disabled
+  setEnabled(false);
+
+  cb.addEventListener("change", () => {
+    setEnabled(cb.checked);
+  });
+})();
+</script>
+
+{% endblock %}

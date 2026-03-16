@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block content %}
+{% include "admin_nav.html" %}
+
+<div class="flex items-center justify-between mb-4">
+  <div>
+    <div class="text-sm text-slate-400">Order history</div>
+    <h1 class="text-xl font-semibold">{{ customer.name }}</h1>
+    <div class="text-slate-400 text-sm">{{ date.strftime('%d-%m-%Y') }}</div>
+  </div>
+
+  <a href="/admin/dashboard?date_str={{ date.isoformat() }}" class="px-3 py-2 rounded-xl border border-slate-700 hover:border-slate-500 text-slate-200">
+    Back to Dashboard
+  </a>
+</div>
+
+<div class="rounded-2xl border border-slate-800 bg-slate-950 overflow-hidden">
+  <div class="px-4 py-3 border-b border-slate-800 text-slate-300 text-sm">
+    {% if order %}
+      Order ID: <span class="font-mono">{{ order.id }}</span>
+      • Source: <span class="font-semibold">{{ (order.source or '') }}</span>
+      • Locked: <span class="font-semibold">{% if order.is_locked %}YES{% else %}NO{% endif %}</span>
+    {% else %}
+      No order for this date.
+    {% endif %}
+  </div>
+
+  <table class="w-full text-sm">
+    <thead class="bg-slate-900/40 text-slate-300">
+      <tr>
+        <th class="text-left px-4 py-3">When</th>
+        <th class="text-left px-4 py-3">Event</th>
+        <th class="text-left px-4 py-3">Actor</th>
+        <th class="text-left px-4 py-3">Note</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% if events and events|length > 0 %}
+        {% for e in events %}
+          <tr class="border-t border-slate-800">
+            <td class="px-4 py-3 text-slate-300">{{ e.created_at.strftime('%d-%m-%Y %H:%M') if e.created_at else '—' }}</td>
+            <td class="px-4 py-3 font-semibold">{{ e.event_type }}</td>
+            <td class="px-4 py-3 text-slate-300">{{ e.actor or '—' }}</td>
+            <td class="px-4 py-3 text-slate-300">{{ e.note or '' }}</td>
+          </tr>
+        {% endfor %}
+      {% else %}
+        <tr class="border-t border-slate-800">
+          <td class="px-4 py-6 text-slate-400" colspan="4">No events yet.</td>
+        </tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}

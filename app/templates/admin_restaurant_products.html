@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block content %}
+{% include "admin_nav.html" %}
+
+<div class="container mx-auto max-w-5xl px-6 py-6">
+  <div class="flex items-center justify-between gap-4">
+    <div>
+      <h1 class="text-2xl font-semibold text-slate-100">Restaurant Products</h1>
+      <p class="text-slate-400 mt-1">
+        <span class="text-slate-200 font-medium">{{ restaurant.name }}</span>
+        <span class="text-slate-500">•</span>
+        <span class="text-slate-400">Enable only the items this restaurant should see in the portal.</span>
+      </p>
+    </div>
+    <a href="/admin/restaurants/{{ restaurant.id }}" class="text-slate-300 hover:text-white underline">Back</a>
+  </div>
+
+  
+  <!-- Search -->
+  <div class="mt-5">
+    <input id="rp-search" type="text" autocomplete="off"
+           placeholder="Search product (Name / SKU)"
+           class="w-full rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+    <div class="mt-2 text-xs text-slate-500">Tip: ESC clears</div>
+  </div>
+
+<form method="post" class="mt-6">
+    <div class="rounded-2xl border border-slate-800 bg-slate-950/40 overflow-hidden">
+      <div class="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+        <div class="text-slate-200 font-medium">Products</div>
+        <div class="text-slate-500 text-sm">Tip: leave price empty to store 0.00</div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead class="bg-slate-900/40 text-slate-300">
+            <tr>
+              <th class="px-4 py-3 text-left w-14">On</th>
+              <th class="px-4 py-3 text-left">Product</th>
+              <th class="px-4 py-3 text-left w-28">Unit</th>
+              <th class="px-4 py-3 text-left w-36">Price</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-900">
+            {% set last_cat = None %}
+            {% for row in items %}
+              {% set p = row.product %}
+              {% set u = row.unit %}
+              {% if last_cat != p.category %}
+                <tr class="bg-slate-900/20 rp-cat" data-role="cat">
+                  <td colspan="4" class="px-4 py-2 text-xs uppercase tracking-wide text-slate-400">
+                    {{ p.category }}
+                  </td>
+                </tr>
+                {% set last_cat = p.category %}
+              {% endif %}
+              <tr class="hover:bg-slate-900/30 rp-row" data-role="product" data-name="{{ p.name|lower }}" data-sku="{{ (p.sku or '')|lower }}">
+                <td class="px-4 py-3">
+                  <input type="checkbox" name="enabled" value="{{ p.id }}"
+                         class="h-4 w-4 rounded border-slate-600 bg-slate-900 text-emerald-500"
+                         {% if row.enabled %}checked{% endif %}>
+                </td>
+                <td class="px-4 py-3">
+                  <div class="text-slate-100 font-medium">{{ p.name }}</div>
+                  <div class="text-slate-500 text-xs">{{ p.sku }}</div>
+                </td>
+                <td class="px-4 py-3">
+                  <select name="unit_{{ p.id }}" class="w-28 rounded-lg border border-slate-700 bg-slate-900/60 px-2 py-2 text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                    <option value="" {% if not row.unit_override %}selected{% endif %}>{{ u.label_el }}</option>
+                    <option value="KG" {% if row.unit_override == 'KG' %}selected{% endif %}>Κιλά</option>
+                    <option value="PCS" {% if row.unit_override == 'PCS' %}selected{% endif %}>Τεμ</option>
+                    <option value="BOX" {% if row.unit_override == 'BOX' %}selected{% endif %}>Κιβ</option>
+                  </select>
+                </td>
+                <td class="px-4 py-3">
+                  <input type="text" inputmode="decimal" name="price_{{ p.id }}"
+                         value="{% if row.enabled %}{{ '%.2f'|format(row.price) }}{% else %}{% if row.price and row.price > 0 %}{{ '%.2f'|format(row.price) }}{% endif %}{% endif %}"
+                         class="w-28 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-slate-100 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                         placeholder="0.00">
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="mt-6 flex items-center justify-end gap-3">
+      <a href="/admin/restaurants/{{ restaurant.id }}" class="rounded-xl px-4 py-2 text-slate-300 hover:text-white">Cancel</a>
+      <button type="submit" class="rounded-xl bg-emerald-600 px-5 py-2.5 font-semibold text-white hover:bg-emerald-500">
+        Save
+      </button>
+    </div>
+  </form>
+</div>
+
+<script>
+(function(){
+  const input = document.getElementById('rp-search');
+  if(!input) return;
+
+  function applyFilter(){
+    const q = (input.value || '').trim().toLowerCase();
+    const productRows = Array.from(document.querySelectorAll('tr[data-role="product"]'));
+    const catRows = Array.from(document.querySelectorAll('tr[data-role="cat"]'));
+
+    // Filter product rows
+    productRows.forEach(r => {
+      const name = (r.getAttribute('data-name') || '');
+      const sku  = (r.getAttribute('data-sku') || '');
+      const ok = !q || name.includes(q) || sku.includes(q);
+      r.style.display = ok ? '' : 'none';
+    });
+
+    // Hide category rows with no visible products until next category
+    catRows.forEach(cat => {
+      let cur = cat.nextElementSibling;
+      let anyVisible = false;
+      while(cur && cur.getAttribute('data-role') !== 'cat'){
+        if(cur.getAttribute('data-role') === 'product' && cur.style.display !== 'none'){
+          anyVisible = true;
+          break;
+        }
+        cur = cur.nextElementSibling;
+      }
+      cat.style.display = anyVisible ? '' : 'none';
+    });
+  }
+
+  input.addEventListener('input', applyFilter);
+  document.addEventListener('keydown', (e) => {
+    if(e.key === 'Escape'){
+      if(input.value){
+        input.value = '';
+        applyFilter();
+      }
+    }
+  });
+
+  // initial
+  applyFilter();
+})();
+</script>
+
+{% endblock %}

@@ -1,0 +1,83 @@
+{% extends "base_admin.html" %}
+{% block content %}
+<div class="flex items-center justify-between gap-4 mb-4 flex-wrap">
+  <div>
+    <h1 class="text-xl font-semibold">Portal Announcements</h1>
+    <p class="text-sm text-slate-400">Messages shown inside the customer portal (global or per-customer).</p>
+  </div>
+  <a class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white" href="/admin/announcements/new">+ New</a>
+</div>
+
+<div class="overflow-x-auto rounded-2xl border border-slate-800">
+  <table class="min-w-full text-sm">
+    <thead class="bg-slate-950/70 text-slate-300">
+      <tr>
+        <th class="text-left px-4 py-3">Active</th>
+        <th class="text-left px-4 py-3">Scope</th>
+        <th class="text-left px-4 py-3">Customer</th>
+        <th class="text-left px-4 py-3">Severity</th>
+        <th class="text-left px-4 py-3">Title</th>
+        <th class="text-left px-4 py-3">Window</th>
+        <th class="text-left px-4 py-3">Ack</th>
+        <th class="text-left px-4 py-3">Version</th>
+        <th class="text-right px-4 py-3">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for a in announcements %}
+      <tr class="border-t border-slate-800 {% if not a.is_active %}opacity-60{% endif %}">
+        <td class="px-4 py-3">
+          {% if a.is_active %}
+            <span class="px-2 py-1 rounded-lg bg-emerald-900/40 border border-emerald-800 text-emerald-200">ON</span>
+          {% else %}
+            <span class="px-2 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-300">OFF</span>
+          {% endif %}
+        </td>
+        <td class="px-4 py-3 font-medium">{{ a.scope }}</td>
+        <td class="px-4 py-3">{{ a.customer_name or "-" }}</td>
+        <td class="px-4 py-3">
+          {% set sev = (a.severity or "info") %}
+          {% if sev == "urgent" %}
+            <span class="px-2 py-1 rounded-lg bg-rose-900/40 border border-rose-800 text-rose-200">urgent</span>
+          {% elif sev == "warning" %}
+            <span class="px-2 py-1 rounded-lg bg-amber-900/40 border border-amber-800 text-amber-200">warning</span>
+          {% else %}
+            <span class="px-2 py-1 rounded-lg bg-sky-900/40 border border-sky-800 text-sky-200">info</span>
+          {% endif %}
+        </td>
+        <td class="px-4 py-3">{{ a.title or "-" }}</td>
+        <td class="px-4 py-3 text-slate-300">
+          {% if a.starts_at %}<div>from: {{ a.starts_at }}</div>{% endif %}
+          {% if a.ends_at %}<div>to: {{ a.ends_at }}</div>{% endif %}
+          {% if not a.starts_at and not a.ends_at %}<span class="text-slate-400">always</span>{% endif %}
+        </td>
+        <td class="px-4 py-3">
+          {% if a.requires_ack %}
+            <span class="px-2 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-300">requires</span>
+          {% else %}
+            <span class="px-2 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-300">no</span>
+          {% endif %}
+        </td>
+        <td class="px-4 py-3">{{ a.version or 1 }}</td>
+        <td class="px-4 py-3 text-right whitespace-nowrap">
+          <a class="px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 hover:bg-slate-800" href="/admin/announcements/{{ a.id }}">Edit</a>
+          <form class="inline" method="post" action="/admin/announcements/{{ a.id }}/toggle">
+            <button class="ml-2 px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 hover:bg-slate-800" type="submit">
+              {% if a.is_active %}Disable{% else %}Enable{% endif %}
+            </button>
+          </form>
+          <form class="inline" method="post" action="/admin/announcements/{{ a.id }}/bump">
+            <button class="ml-2 px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 hover:bg-slate-800" type="submit">Bump v</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+      {% if announcements|length == 0 %}
+      <tr>
+        <td class="px-4 py-6 text-slate-400" colspan="9">No announcements yet.</td>
+      </tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

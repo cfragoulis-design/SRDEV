@@ -1,0 +1,9 @@
+{% for a in active_announcements %}
+<div style="padding:10px;margin-bottom:10px;border-radius:6px;
+    {% if a.type == 'WARN' %}background:#fff3cd;color:#856404;
+    {% elif a.type == 'SUCCESS' %}background:#d4edda;color:#155724;
+    {% else %}background:#cce5ff;color:#004085;{% endif %}">
+    <strong>{{ a.title }}</strong><br>
+    {{ a.body }}
+</div>
+{% endfor %}

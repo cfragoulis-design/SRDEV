@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block content %}
+{% include "admin_nav.html" %}
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+  <div class="card p-4">
+    <div class="text-lg font-semibold mb-2">New announcement</div>
+    <form method="post" action="/admin/announcements/create" class="space-y-3">
+      <div>
+        <label class="block text-xs text-slate-400 mb-1">Scope</label>
+        <div class="flex items-center gap-3 text-sm">
+          <label class="inline-flex items-center gap-2"><input type="radio" name="scope_mode" value="global" checked> <span>Global (all)</span></label>
+          <label class="inline-flex items-center gap-2"><input type="radio" name="scope_mode" value="selected"> <span>Selected restaurants</span></label>
+        </div>
+        <div class="mt-2">
+          <select name="target_customer_ids" multiple size="8" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800">
+            {% for c in customers %}
+              <option value="{{ c.id }}">{{ c.name }}</option>
+            {% endfor %}
+          </select>
+          <div class="text-xs text-slate-500 mt-1">Hold Ctrl/⌘ to select multiple</div>
+        </div>
+        <!-- legacy single-target field kept hidden for backward compatibility -->
+        <select name="customer_id" class="hidden" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800">
+          <option value="">Global (all customers)</option>
+          {% for c in customers %}
+            <option value="{{ c.id }}">{{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label class="block text-xs text-slate-400 mb-1">Priority</label>
+        <select name="priority" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800">
+          <option value="info">Info</option>
+          <option value="warning">Warning</option>
+          <option value="urgent">Urgent</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="block text-xs text-slate-400 mb-1">Expires (optional)</label>
+        <input type="datetime-local" name="expires_at" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800" />
+        <div class="text-xs text-slate-500 mt-1">Leave empty to show until disabled.</div>
+      </div>
+
+      <div class="flex items-center gap-4">
+        <label class="inline-flex items-center gap-2 text-sm">
+          <input type="checkbox" name="dismissible" value="1" checked />
+          Dismissible
+        </label>
+        <label class="inline-flex items-center gap-2 text-sm">
+          <input type="checkbox" name="is_active" value="1" checked />
+          Active
+        </label>
+      </div>
+
+      <div>
+        <label class="block text-xs text-slate-400 mb-1">Message</label>
+        <textarea name="message" rows="5" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800" placeholder="Write message..."></textarea>
+      </div>
+
+      <button class="w-full px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-black font-semibold" type="submit">
+        Create
+      </button>
+    </form>
+  </div>
+
+  <div class="card p-4 lg:col-span-2">
+    <div class="flex items-center justify-between mb-2">
+      <div class="text-lg font-semibold">Announcements</div>
+      <div class="text-xs text-slate-500">Newest first</div>
+    </div>
+
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="text-xs text-slate-400">
+          <tr class="border-b border-slate-800">
+            <th class="py-2 text-left">Message</th>
+            <th class="py-2 text-left">Scope</th>
+            <th class="py-2 text-left">Priority</th>
+            <th class="py-2 text-left">Active</th>
+            <th class="py-2 text-left">Expires</th>
+            <th class="py-2 text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in announcements %}
+          <tr class="border-b border-slate-900/60 align-top">
+            <td class="py-2 pr-3 whitespace-pre-wrap">{{ a.message }}</td>
+            <td class="py-2 pr-3">
+              {% if a._target_names and (a._target_names|length > 0) %}
+                <span class="text-slate-200">{{ a._target_names|join(", ") }}</span>
+              {% elif a.customer_id %}
+                {% set cname = "" %}
+                {% for c in customers %}
+                  {% if c.id == a.customer_id %}{% set cname = c.name %}{% endif %}
+                {% endfor %}
+                <span class="text-slate-200">{{ cname }}</span>
+              {% else %}
+                <span class="text-slate-400">Global</span>
+              {% endif %}
+            </td>
+            <td class="py-2 pr-3">
+              {% if a.priority == "urgent" %}
+                <span class="px-2 py-1 rounded-lg bg-red-500/20 border border-red-500/30 text-red-200">URGENT</span>
+              {% elif a.priority == "warning" %}
+                <span class="px-2 py-1 rounded-lg bg-amber-500/20 border border-amber-500/30 text-amber-200">WARNING</span>
+              {% else %}
+                <span class="px-2 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-200">INFO</span>
+              {% endif %}
+            </td>
+            <td class="py-2 pr-3">
+              {% if a.is_active %}
+                <span class="text-emerald-300 font-semibold">YES</span>
+              {% else %}
+                <span class="text-slate-500">NO</span>
+              {% endif %}
+              {% if a.dismissible %}
+                <div class="text-xs text-slate-500">dismissible</div>
+              {% endif %}
+            </td>
+            <td class="py-2 pr-3 text-slate-300">
+              {% if a.expires_at %}{{ a.expires_at }}{% else %}<span class="text-slate-500">—</span>{% endif %}
+            </td>
+            <td class="py-2 text-right">
+              <div class="flex justify-end gap-2">
+                <form method="post" action="/admin/announcements/{{ a.id }}/toggle">
+                  <button class="px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 hover:bg-slate-800" type="submit">
+                    {% if a.is_active %}Disable{% else %}Enable{% endif %}
+                  </button>
+                </form>
+                <form method="post" action="/admin/announcements/{{ a.id }}/delete" onsubmit="return confirm('Delete announcement?');">
+                  <button class="px-3 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-black font-semibold" type="submit">Delete</button>
+                </form>
+              </div>
+              <div class="text-xs text-slate-500 mt-1">by {{ a.created_by or "—" }} • {{ a.created_at }}</div>
+            </td>
+          </tr>
+          {% endfor %}
+          {% if not announcements %}
+          <tr><td colspan="6" class="py-6 text-center text-slate-500">No announcements yet.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

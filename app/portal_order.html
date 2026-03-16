@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <div>
+    <div class="text-sm text-slate-400">Customer Portal</div>
+    <h1 class="text-xl font-semibold">{{ customer.name }}</h1>
+  </div>
+  <form id="portal-date-form" method="get" action="/p/{{ customer.slug }}/order" class="flex items-center gap-2">
+    <label class="text-sm text-slate-300">Ημερομηνία</label>
+    {# Date must ALWAYS be selectable so the user can place a future order, even if today's order is locked/submitted #}
+    <input id="portal-date" type="date" name="date_str" value="{{ date.isoformat() }}" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2">
+
+  </form>
+</div>
+
+<script>
+  // Auto change date without locking the portal on locked/submitted days.
+  // Use safe GET redirect with date_str query param.
+  (function () {
+    const form = document.getElementById('portal-date-form');
+    const input = document.getElementById('portal-date');
+    if (!form || !input) return;
+    input.addEventListener('change', function () {
+      const val = (input.value || '').trim();
+      if (!val) return;
+      const url = new URL(form.action, window.location.origin);
+      url.searchParams.set('date_str', val);
+      window.location.href = url.toString();
+    });
+  })();
+</script>
+
+{% if message %}
+  <div class="mb-4 bg-rose-900/30 border border-rose-800 text-rose-200 rounded-2xl px-4 py-3">
+    {{ message }}
+  </div>
+{% endif %}
+
+{% if submitted %}
+  <div class="mb-4 bg-emerald-900/30 border border-emerald-800 text-emerald-200 rounded-2xl px-4 py-3">
+    Η παραγγελία έχει υποβληθεί. Δεν μπορείς να την υποβάλεις ξανά.
+    Για αλλαγές, επικοινώνησε με το κατάστημα.
+  </div>
+{% endif %}
+
+{% if locked %}
+  <div class="mb-4 bg-amber-900/30 border border-amber-800 text-amber-200 rounded-2xl px-4 py-3">
+    Η παραγγελία έχει κλειδώσει (07:00). Για αλλαγές, επικοινώνησε με το κατάστημα.
+  </div>
+{% endif %}
+
+{% if customer.area_route or customer.delivery_days or customer.notes %}
+  <div class="mb-4 bg-slate-900/40 border border-slate-800 rounded-2xl px-4 py-3 text-sm">
+    <div class="flex flex-wrap gap-x-6 gap-y-2">
+      {% if customer.area_route %}
+        <div><span class="text-slate-400">Δρομολόγιο:</span> <span class="text-slate-200 font-medium">{{ customer.area_route }}</span></div>
+      {% endif %}
+      {% if customer.delivery_days %}
+        <div><span class="text-slate-400">Ημέρες παράδοσης:</span> <span class="text-slate-200 font-medium">{{ customer.delivery_days }}</span></div>
+      {% endif %}
+    </div>
+    {% if customer.notes %}
+      <div class="mt-2 text-slate-200">
+        <span class="text-slate-400">Σημειώσεις:</span>
+        <div class="mt-1 whitespace-pre-wrap">{{ customer.notes }}</div>
+      </div>
+    {% endif %}
+  </div>
+{% endif %}
+
+<form method="post" action="/p/{{ customer.slug }}/order" class="space-y-4">
+  <input type="hidden" name="date_str" value="{{ date.isoformat() }}">
+
+  <div class="bg-slate-900/40 border border-slate-800 rounded-2xl overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-900">
+        <tr class="text-slate-300">
+          <th class="text-left px-4 py-3">Προϊόν</th>
+          <th class="text-left px-4 py-3">Μονάδα</th>
+          <th class="text-left px-4 py-3 w-40">QTY</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for cp, p, u in items %}
+        <tr class="border-t border-slate-800">
+          <td class="px-4 py-3 font-medium">{{ p.name }}</td>
+          <td class="px-4 py-3 text-slate-300">{% if cp.unit_override %}{% if cp.unit_override == 'KG' %}Κιλά{% elif cp.unit_override == 'PCS' %}Τεμ{% elif cp.unit_override == 'BOX' %}Κιβ{% else %}{{ cp.unit_override }}{% endif %}{% else %}{{ u.label_el }}{% endif %}</td>
+          <td class="px-4 py-3">
+            <input name="qty_{{ p.id }}" value="{{ qty_map.get(p.id, '') }}"
+              class="w-32 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2"
+              {% if locked or submitted %}disabled{% endif %} inputmode="decimal">
+          </td>
+        </tr>
+        {% endfor %}
+
+        {% if items|length == 0 %}
+        <tr class="border-t border-slate-800">
+          <td colspan="3" class="px-4 py-6 text-slate-300">
+            Δεν έχουν οριστεί προϊόντα για το κατάστημα. Επικοινώνησε με το κατάστημα.
+          </td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="bg-slate-900/40 border border-slate-800 rounded-2xl p-4">
+    <label class="text-sm text-slate-300">Σχόλιο (προαιρετικό)</label>
+    <textarea name="comment" class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2" rows="3"
+      {% if locked or submitted %}disabled{% endif %}>{{ comment }}</textarea>
+  </div>
+
+  <div class="flex justify-end">
+    <button class="bg-emerald-600 hover:bg-emerald-500 rounded-xl px-5 py-2 font-medium" {% if locked or submitted %}disabled{% endif %}>
+      Υποβολή
+    </button>
+  </div>
+</form>
+<script>
+(function(){
+  // Auto-change date without requiring the user to click Go.
+  // Use a safe GET redirect to avoid partial POSTs and never block future dates.
+  const form = document.getElementById('portal-date-form');
+  const dateEl = document.getElementById('portal-date');
+  if (!form || !dateEl) return;
+  dateEl.addEventListener('change', function(){
+    try {
+      if (!dateEl.value) return;
+      const url = new URL(form.getAttribute('action') || window.location.pathname, window.location.origin);
+      url.searchParams.set('date_str', dateEl.value);
+      window.location.href = url.toString();
+    } catch (e) {
+      // Fallback: submit the GET form
+      try { form.submit(); } catch (e2) {}
+    }
+  });
+})();
+</script>
+<script>
+(function(){
+  const form = document.getElementById('order-form');
+  if(!form) return;
+  form.addEventListener('submit', function(){
+    const btn = form.querySelector('button[type="submit"], button:not([type])');
+    if(btn){
+      btn.disabled = true;
+      btn.textContent = 'Υποβολή...';
+    }
+  });
+})();
+</script>
+{% endblock %}
