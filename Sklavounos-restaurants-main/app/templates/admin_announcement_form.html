@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block content %}
+{% include "admin_nav.html" %}
+
+<div class="card p-4 max-w-3xl">
+  <div class="text-lg font-semibold mb-3">Edit announcement #{{ a.id }}</div>
+
+  <form method="post" action="/admin/announcements/{{ a.id }}/edit" class="space-y-3">
+    <div>
+      <label class="block text-xs text-slate-400 mb-1">Scope</label>
+      <select name="target_customer_ids" multiple size="10" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800">
+        {% for c in customers %}
+          <option value="{{ c.id }}" {% if c.id in target_ids %}selected{% endif %}>{{ c.name }}</option>
+        {% endfor %}
+      </select>
+      <div class="text-xs text-slate-500 mt-1">Empty selection means Global (all customers)</div>
+    </div>
+
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="block text-xs text-slate-400 mb-1">Priority</label>
+        <select name="priority" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800">
+          <option value="info" {% if a.priority=='info' %}selected{% endif %}>Info</option>
+          <option value="warning" {% if a.priority=='warning' %}selected{% endif %}>Warning</option>
+          <option value="urgent" {% if a.priority=='urgent' %}selected{% endif %}>Urgent</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs text-slate-400 mb-1">Sort priority</label>
+        <input type="number" name="sort_priority" value="{{ a.sort_priority or 50 }}" min="1" max="100" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800"/>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-4">
+      <label class="inline-flex items-center gap-2"><input type="checkbox" name="is_pinned" {% if a.is_pinned %}checked{% endif %}> <span>Pinned</span></label>
+      <label class="inline-flex items-center gap-2"><input type="checkbox" name="is_active" {% if a.is_active %}checked{% endif %}> <span>Active</span></label>
+      <label class="inline-flex items-center gap-2"><input type="checkbox" name="dismissible" {% if a.dismissible %}checked{% endif %}> <span>Dismissible</span></label>
+    </div>
+
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="block text-xs text-slate-400 mb-1">Start at</label>
+        <input type="datetime-local" name="start_at" value="{{ a.start_at.strftime('%Y-%m-%dT%H:%M') if a.start_at else '' }}" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800"/>
+      </div>
+      <div>
+        <label class="block text-xs text-slate-400 mb-1">End at</label>
+        <input type="datetime-local" name="end_at" value="{{ (a.end_at or a.expires_at).strftime('%Y-%m-%dT%H:%M') if (a.end_at or a.expires_at) else '' }}" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800"/>
+      </div>
+    </div>
+
+    <div>
+      <label class="block text-xs text-slate-400 mb-1">Message</label>
+      <textarea name="message" rows="4" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800">{{ a.message }}</textarea>
+    </div>
+
+    <div class="flex gap-2">
+      <button class="btn" type="submit">Save</button>
+      <a class="btn btn-secondary" href="/admin/announcements">Back</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

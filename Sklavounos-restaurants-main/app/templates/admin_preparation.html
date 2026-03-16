@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block content %}
+{% include "admin_nav.html" %}
+
+<div class="max-w-5xl mx-auto px-4">
+  <div class="flex items-center justify-between mt-6 mb-4">
+    <div>
+      <h1 class="text-2xl font-semibold text-white">Preparation</h1>
+      <div class="text-slate-400 text-sm mt-1">Totals per product for cutting / production</div>
+    </div>
+
+    <form id="dateForm" method="get" action="/admin/preparation" class="flex items-center gap-2">
+      <label class="text-slate-300 text-sm">Ημερομηνία</label>
+      <input id="dateInput" type="date" name="date_str" value="{{ date.isoformat() }}"
+             class="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-slate-100">
+      <button type="submit" class="bg-slate-800 hover:bg-slate-700 text-slate-100 px-4 py-2 rounded">
+        Go
+      </button>
+    </form>
+  </div>
+
+  {% if product_totals and product_totals|length > 0 %}
+    <div class="bg-slate-900/60 border border-slate-800 rounded-lg overflow-hidden">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-slate-800">
+        <div class="text-slate-200 font-semibold">Product totals</div>
+        <div class="text-slate-300 text-sm">
+          Total KG: <span class="font-semibold text-white">{{ "%.2f"|format(product_totals_total_kg or 0) }}</span>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead class="bg-slate-950/60">
+            <tr class="text-slate-300">
+              <th class="text-left px-4 py-2 w-[55%]">Product</th>
+              <th class="text-left px-4 py-2 w-[25%]">Category</th>
+              <th class="text-right px-4 py-2 w-[10%]">Unit</th>
+              <th class="text-right px-4 py-2 w-[10%]">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in product_totals %}
+              <tr class="border-t border-slate-800/70 hover:bg-slate-800/30">
+                <td class="px-4 py-2 text-slate-100">{{ row.name }}</td>
+                <td class="px-4 py-2 text-slate-300">{{ row.category }}</td>
+                <td class="px-4 py-2 text-right text-slate-300">{{ row.unit }}</td>
+                <td class="px-4 py-2 text-right font-semibold text-white">{{ row.display_qty }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% else %}
+    <div class="bg-slate-900/60 border border-slate-800 rounded-lg p-6 text-slate-300">
+      No products found for this day.
+    </div>
+  {% endif %}
+</div>
+
+{% endblock %}

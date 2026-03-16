@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>{{ "Edit" if announcement else "New" }} Announcement</h2>
+<form method="post">
+    <label>Title</label><br>
+    <input type="text" name="title" value="{{ announcement.title if announcement else '' }}"><br><br>
+
+    <label>Message</label><br>
+    <textarea name="body">{{ announcement.body if announcement else '' }}</textarea><br><br>
+
+    <label>Type</label><br>
+    <select name="type">
+        <option value="INFO">INFO</option>
+        <option value="WARN">WARN</option>
+        <option value="SUCCESS">SUCCESS</option>
+    </select><br><br>
+
+    <label>Active</label>
+    <input type="checkbox" name="is_active" {% if announcement and announcement.is_active %}checked{% endif %}><br><br>
+
+    <button type="submit">Save</button>
+</form>
+{% endblock %}

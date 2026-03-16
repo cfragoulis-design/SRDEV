@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block content %}
+{% include "admin_nav.html" %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-xl font-semibold">Products</h1>
+  <a class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500" href="/admin/products/new">Add product</a>
+
+<form method="get" class="mb-3 flex flex-wrap items-center gap-2">
+  <label class="text-sm text-slate-300">Category</label>
+  <select name="category" class="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-100">
+    <option value="all" {% if current_category|lower == 'all' %}selected{% endif %}>All categories</option>
+    {% for c in categories %}
+      <option value="{{ c }}" {% if c == current_category %}selected{% endif %}>{{ c }}</option>
+    {% endfor %}
+  </select>
+
+  <input type="hidden" name="sort" value="{{ sort }}">
+  <input type="hidden" name="dir" value="{{ dir }}">
+
+  <button class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700" type="submit">Apply</button>
+  <a class="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800"
+     href="/admin/products">Clear</a>
+</form>
+
+</div>
+
+<div class="rounded-2xl border border-slate-800 bg-slate-900/40 overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-slate-900/60">
+      <tr class="text-left">
+        <th class="px-4 py-3">
+  <a class="hover:underline" href="?category={% if current_category and current_category|lower != 'all' %}{{ current_category|urlencode }}{% else %}all{% endif %}&sort=sku&dir={% if sort == 'sku' and dir == 'asc' %}desc{% else %}asc{% endif %}">
+    SKU
+    {% if sort == 'sku' %}<span class="text-slate-400 ml-1">{% if dir == 'asc' %}▲{% else %}▼{% endif %}</span>{% endif %}
+  </a>
+</th>
+        <th class="px-4 py-3">
+  <a class="hover:underline" href="?category={% if current_category and current_category|lower != 'all' %}{{ current_category|urlencode }}{% else %}all{% endif %}&sort=name&dir={% if sort == 'name' and dir == 'asc' %}desc{% else %}asc{% endif %}">
+    Product
+    {% if sort == 'name' %}<span class="text-slate-400 ml-1">{% if dir == 'asc' %}▲{% else %}▼{% endif %}</span>{% endif %}
+  </a>
+</th>
+        <th class="px-4 py-3">Category</th>
+        <th class="px-4 py-3">Unit</th>
+        <th class="px-4 py-3">Active</th>
+        <th class="px-4 py-3 text-right">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in products %}
+      <tr class="border-t border-slate-800">
+        <td class="px-4 py-3 font-mono text-xs text-slate-300">{{ p.sku }}</td>
+        <td class="px-4 py-3">{{ p.name }}</td>
+        <td class="px-4 py-3 text-slate-300">{{ p.category }}</td>
+        <td class="px-4 py-3 text-slate-300">{{ unit_map.get(p.unit_id, "—") }}</td>
+        <td class="px-4 py-3">
+          {% if p.is_active %}
+            <span class="px-2 py-1 rounded-lg bg-emerald-600/20 text-emerald-300 border border-emerald-700/40">Yes</span>
+          {% else %}
+            <span class="px-2 py-1 rounded-lg bg-slate-800 text-slate-300 border border-slate-700">No</span>
+          {% endif %}
+        </td>
+        <td class="px-4 py-3 text-right">
+          <a class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700" href="/admin/products/{{ p.id }}">Edit</a>
+        </td>
+      </tr>
+      {% endfor %}
+      {% if products|length == 0 %}
+      <tr class="border-t border-slate-800">
+        <td colspan="6" class="px-4 py-6 text-slate-400">
+          No products yet. Click <span class="text-slate-200">Add product</span> to create the first one.
+        </td>
+      </tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

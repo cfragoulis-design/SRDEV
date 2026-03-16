@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+{% block content %}
+{% include "admin_nav.html" %}
+
+<div class="container" style="max-width: 1100px; margin: 0 auto; padding: 16px;">
+  <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap;">
+    <div>
+      <h2 style="margin:0 0 6px 0;">{{ restaurant.name }}</h2>
+      <div style="opacity:.85; font-size:14px;">
+        <div><b>Δρομολόγιο:</b> {{ restaurant.area_route or "-" }}</div>
+        <div><b>Label:</b> {{ restaurant.label_key or "-" }}</div>
+        <div style="margin-top:10px;">
+          {% if restaurant.label_key %}
+            <!-- Direct local print (fast). Falls back to server queue if local agent is not available. -->
+            <button type="button" class="btn" id="btnPrintCentral" data-target-station="CENTRAL" data-label-key="{{ restaurant.label_key }}">🏷 Print Central</button>
+            <button type="button" class="btn" id="btnPrintWorkshop" data-target-station="WORKSHOP" data-label-key="{{ restaurant.label_key }}" style="margin-left:6px;">🏷 Print Workshop</button>
+
+            <!-- Fallback queue forms (hidden) -->
+            <form method="post" action="/admin/restaurants/{{ restaurant.id }}/print-label?station=CENTRAL" id="fallbackCentral" style="display:none;"></form>
+            <form method="post" action="/admin/restaurants/{{ restaurant.id }}/print-label?station=WORKSHOP" id="fallbackWorkshop" style="display:none;"></form>
+
+            <div id="localPrintHint" style="opacity:.7; font-size:12px; margin-top:6px;"></div>
+          {% else %}
+            <span style="opacity:.7;">No label configured</span>
+          {% endif %}
+        </div>
+        <div><b>Τηλέφωνο:</b> {{ restaurant.phone or "-" }} &nbsp; <b>Email:</b> {{ restaurant.email or "-" }}</div>
+        <div><b>Υπεύθυνος:</b> {{ restaurant.contact_person or "-" }}</div>
+        <div><b>Ημέρες:</b> {{ delivery_days_label or "-" }}</div>
+        {% if restaurant.notes %}
+        <div style="margin-top:6px;"><b>Σημειώσεις:</b> {{ restaurant.notes }}</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+      <a class="btn" href="/admin/restaurants/{{ restaurant.id }}">Επεξεργασία</a>
+      <a class="btn" href="/admin/restaurants/{{ restaurant.id }}/products">Προϊόντα/Τιμές</a>
+    </div>
+  </div>
+
+  <hr style="margin:16px 0; opacity:.25;"/>
+
+  <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:flex-end;">
+    <form method="get" action="/admin/restaurants/{{ restaurant.id }}/card" style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+      <div>
+        <div style="font-size:12px; opacity:.8; margin-bottom:4px;">Από</div>
+        <input type="date" name="from" value="{{ from_str }}" />
+      </div>
+      <div>
+        <div style="font-size:12px; opacity:.8; margin-bottom:4px;">Έως</div>
+        <input type="date" name="to" value="{{ to_str }}" />
+      </div>
+      <button class="btn" type="submit">Φίλτρο</button>
+    </form>
+
+    <div style="margin-left:auto; display:flex; gap:12px; flex-wrap:wrap;">
+      <div class="card" style="min-width: 210px;">
+        <div style="font-size:12px; opacity:.75;">Καθαρή αξία</div>
+        <div style="font-size:18px; font-weight:700;">€ {{ totals.net_fmt }}</div>
+      </div>
+      <div class="card" style="min-width: 210px;">
+        <div style="font-size:12px; opacity:.75;">ΦΠΑ 13%</div>
+        <div style="font-size:18px; font-weight:700;">€ {{ totals.vat_fmt }}</div>
+      </div>
+      <div class="card" style="min-width: 210px;">
+        <div style="font-size:12px; opacity:.75;">Σύνολο</div>
+        <div style="font-size:18px; font-weight:800;">€ {{ totals.gross_fmt }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:grid; grid-template-columns: 1.3fr 1fr; gap:16px; margin-top:16px;">
+    <div class="card">
+      <h3 style="margin:0 0 10px 0;">Ιστορικό Παραγγελιών</h3>
+      {% if orders %}
+      <table style="width:100%; border-collapse:collapse;">
+        <thead>
+          <tr style="text-align:left; border-bottom:1px solid rgba(255,255,255,.12);">
+            <th style="padding:8px 6px;">Ημ/νία</th>
+            <th style="padding:8px 6px;">Καθαρή</th>
+            <th style="padding:8px 6px;">ΦΠΑ</th>
+            <th style="padding:8px 6px;">Σύνολο</th>
+            <th style="padding:8px 6px;">Κατάσταση</th>
+            <th style="padding:8px 6px;"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for o in orders %}
+          <tr style="border-bottom:1px solid rgba(255,255,255,.08);">
+            <td style="padding:8px 6px;">{{ o.date_disp }}</td>
+            <td style="padding:8px 6px;">€ {{ o.net_fmt }}</td>
+            <td style="padding:8px 6px;">€ {{ o.vat_fmt }}</td>
+            <td style="padding:8px 6px;"><b>€ {{ o.gross_fmt }}</b></td>
+            <td style="padding:8px 6px;">
+              {% if o.completed %}
+                <span class="badge badge-ok">COMPLETED</span>
+              {% elif o.locked %}
+                <span class="badge">LOCKED</span>
+              {% else %}
+                <span class="badge badge-warn">OPEN</span>
+              {% endif %}
+            </td>
+            <td style="padding:8px 6px;">
+              <a href="/admin/orders/{{ restaurant.id }}/full?date_str={{ o.date_str }}">Άνοιγμα</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+        <div style="opacity:.8;">Δεν υπάρχουν παραγγελίες στο επιλεγμένο διάστημα.</div>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h3 style="margin:0 0 10px 0;">Τιμές Εστιατορίου</h3>
+      {% if prices %}
+      <div style="max-height: 520px; overflow:auto;">
+        <table style="width:100%; border-collapse:collapse;">
+          <thead>
+            <tr style="text-align:left; border-bottom:1px solid rgba(255,255,255,.12);">
+              <th style="padding:8px 6px;">Προϊόν</th>
+              <th style="padding:8px 6px;">Μον.</th>
+              <th style="padding:8px 6px;">Τιμή</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in prices %}
+            <tr style="border-bottom:1px solid rgba(255,255,255,.08);">
+              <td style="padding:8px 6px;">{{ p.name }}</td>
+              <td style="padding:8px 6px; opacity:.85;">{{ p.unit }}</td>
+              <td style="padding:8px 6px;"><b>€ {{ p.price_fmt }}</b></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+        <div style="opacity:.8;">Δεν υπάρχουν τιμές/προϊόντα για αυτό το εστιατόριο.</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const LOCAL_BASE = 'http://127.0.0.1:17777';
+
+  async function getLocalStation(){
+    try{
+      const r = await fetch(`${LOCAL_BASE}/station`, {cache:'no-store'});
+      if (!r.ok) return null;
+      const j = await r.json();
+      return (j.station || '').toUpperCase() || null;
+    }catch(e){
+      return null;
+    }
+  }
+
+  async function directPrint(labelKey, targetStation){
+    const r = await fetch(`${LOCAL_BASE}/print`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ label_key: labelKey, target_station: targetStation })
+    });
+    const j = await r.json().catch(()=>({}));
+    if (!r.ok || !j.ok) {
+      const msg = j.error || `Local print failed (${r.status})`;
+      throw new Error(msg);
+    }
+    return true;
+  }
+
+  function setBtnState(btn, enabled, title){
+    if (!btn) return;
+    btn.disabled = !enabled;
+    btn.style.opacity = enabled ? '1' : '.5';
+    btn.title = title || '';
+  }
+
+  const btnC = document.getElementById('btnPrintCentral');
+  const btnW = document.getElementById('btnPrintWorkshop');
+  const hint = document.getElementById('localPrintHint');
+  const fbC = document.getElementById('fallbackCentral');
+  const fbW = document.getElementById('fallbackWorkshop');
+
+  let localStation = null;
+  getLocalStation().then(st => {
+    localStation = st;
+    if (!hint) return;
+    if (!localStation) {
+      hint.textContent = 'Local print agent not detected. Buttons will fall back to queue.';
+      setBtnState(btnC, true, 'Will enqueue if local agent is not available');
+      setBtnState(btnW, true, 'Will enqueue if local agent is not available');
+      return;
+    }
+    hint.textContent = `Local station detected: ${localStation}.`;
+    // Enable only matching station for direct print; other station will still enqueue.
+    setBtnState(btnC, true, localStation === 'CENTRAL' ? 'Direct print (local)' : 'Will enqueue to CENTRAL queue');
+    setBtnState(btnW, true, localStation === 'WORKSHOP' ? 'Direct print (local)' : 'Will enqueue to WORKSHOP queue');
+  });
+
+  async function handleClick(btn){
+    const labelKey = btn.getAttribute('data-label-key');
+    const target = btn.getAttribute('data-target-station');
+    // If local agent is available and matches target, print instantly.
+    if (localStation && localStation === target) {
+      try{
+        await directPrint(labelKey, target);
+        alert('Printed.');
+        return;
+      }catch(e){
+        alert((e && e.message) ? e.message : 'Local print failed. Falling back to queue.');
+      }
+    }
+    // Fallback to queue
+    if (target === 'CENTRAL' && fbC) fbC.submit();
+    if (target === 'WORKSHOP' && fbW) fbW.submit();
+  }
+
+  if (btnC) btnC.addEventListener('click', ()=>handleClick(btnC));
+  if (btnW) btnW.addEventListener('click', ()=>handleClick(btnW));
+})();
+</script>
+
+<style>
+  .btn{
+    display:inline-block;
+    padding:8px 12px;
+    border-radius:10px;
+    border:1px solid rgba(255,255,255,.16);
+    background: rgba(255,255,255,.06);
+    text-decoration:none;
+    color: inherit;
+    font-weight:600;
+  }
+  .btn:hover{ background: rgba(255,255,255,.10); }
+  .card{
+    border:1px solid rgba(255,255,255,.12);
+    background: rgba(255,255,255,.04);
+    border-radius:14px;
+    padding:12px;
+  }
+  .badge{
+    display:inline-block;
+    padding:3px 8px;
+    border-radius:999px;
+    font-size:12px;
+    border:1px solid rgba(255,255,255,.16);
+    background: rgba(255,255,255,.06);
+  }
+  .badge-ok{
+    border-color: rgba(40, 200, 120, .55);
+    background: rgba(40, 200, 120, .18);
+    font-weight:700;
+  }
+  .badge-warn{
+    border-color: rgba(240, 190, 60, .55);
+    background: rgba(240, 190, 60, .18);
+    font-weight:700;
+  }
+</style>
+{% endblock %}
