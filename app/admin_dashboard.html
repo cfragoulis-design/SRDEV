@@ -106,16 +106,15 @@
           <th class="text-right px-4 py-3">Actions</th>
         </tr>
       </thead>
-      {% for s in summaries %}
+      <tbody>
+        {% for s in summaries %}
           {% set c = s.customer %}
-      <tbody class="dashboard-sort-group" data-sort-customer-id="{{ c.id }}">
           <tr class="{% if s.completed %}bg-emerald-700/35{% elif s.has_packed %}bg-emerald-700/20{% elif s.has_order %}bg-slate-900/20{% endif %} border-t border-slate-900" data-has-order="{{ 1 if s.has_order else 0 }}"
               data-row="customer"
               data-customer-id="{{ c.id }}"
               data-customer-name="{{ (c.name or '')|lower }}"
               data-customer-afm="{{ (c.afm or '') }}">
             <td class="px-4 py-3 text-slate-100">
-              <span class="dash-drag-handle mr-2 inline-flex items-center justify-center w-7 h-7 rounded bg-slate-900/60 hover:bg-slate-800 text-slate-200 border border-slate-800 cursor-grab select-none" title="Drag to reorder">↕</span>
               <button type="button" class="toggle-order mr-2 inline-flex items-center justify-center w-7 h-7 rounded bg-slate-800 hover:bg-slate-700 text-slate-100"
                       data-customer-id="{{ c.id }}" data-date="{{ date.isoformat() }}">+</button>
               <a href="/admin/restaurants/{{ c.id }}/card" class="font-semibold hover:underline">{{ c.name }}</a>
@@ -199,8 +198,8 @@
               <div id="summary-{{ c.id }}" class="bg-slate-950/30 border border-slate-800 rounded-lg p-4"></div>
             </td>
           </tr>
-      </tbody>
         {% endfor %}
+      </tbody>
     </table>
   </div>
 </div>
@@ -216,8 +215,6 @@
     background: transparent;
   }
   .sr-dd-item:hover { background: rgba(255,255,255,0.08); }
-  .sr-drag-ghost { opacity: .35; }
-  .sr-drag-chosen .dash-drag-handle { cursor: grabbing; }
 </style>
 
 <script>
@@ -1123,53 +1120,4 @@ scheduleMidnightRefresh()
   setInterval(refreshChangedOpenSummaries, OPEN_SUMMARY_META_MS);
 })();
 </script>
-
-<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
-<script>
-(function(){
-  function getDashboardTable(){
-    return document.querySelector('.bg-slate-950\/40.border.border-slate-800.rounded-xl.overflow-hidden table');
-  }
-  async function saveOrder(){
-    const ids = Array.from(document.querySelectorAll('tbody.dashboard-sort-group'))
-      .map(tb => Number(tb.getAttribute('data-sort-customer-id') || '0'))
-      .filter(Boolean);
-    try{
-      await fetch('/admin/dashboard/reorder', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ customer_ids: ids })
-      });
-    }catch(e){}
-  }
-  function closeAllOpenSummaries(){
-    document.querySelectorAll('tr[id^="summary-row-"]:not(.hidden)').forEach(function(row){
-      row.classList.add('hidden');
-    });
-    document.querySelectorAll('.toggle-order').forEach(function(btn){ btn.textContent = '+'; });
-  }
-  function initSortable(){
-    const table = getDashboardTable();
-    if (!table) return;
-    if (typeof Sortable === 'undefined') return;
-    if (table._srSortableReady) return;
-    table._srSortableReady = true;
-    new Sortable(table, {
-      animation: 150,
-      draggable: 'tbody.dashboard-sort-group',
-      handle: '.dash-drag-handle',
-      ghostClass: 'sr-drag-ghost',
-      chosenClass: 'sr-drag-chosen',
-      forceFallback: true,
-      fallbackOnBody: true,
-      onStart: function(){ closeAllOpenSummaries(); },
-      onEnd: function(){ saveOrder(); }
-    });
-  }
-  document.addEventListener('DOMContentLoaded', initSortable);
-  setTimeout(initSortable, 0);
-})();
-</script>
-
 {% endblock %}
