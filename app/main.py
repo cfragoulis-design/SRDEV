@@ -1507,6 +1507,7 @@ def admin_order_summary(customer_id: int, request: Request, db: Session = Depend
         OrderLine.id,
         OrderLine.product_id,
         Product.name,
+        Product.sku,
         func.coalesce(CustomerProduct.unit_override, Unit.code).label("unit_code"),
         OrderLine.qty,
         OrderLine.unit_price_snapshot,
@@ -1534,9 +1535,9 @@ def admin_order_summary(customer_id: int, request: Request, db: Session = Depend
 
     for r in rows:
         if has_packed:
-            line_id, product_id, name, unit_code, qty, unit_price, packed = r
+            line_id, product_id, name, sku, unit_code, qty, unit_price, packed = r
         else:
-            line_id, product_id, name, unit_code, qty, unit_price = r
+            line_id, product_id, name, sku, unit_code, qty, unit_price = r
             packed = None
 
         qty_f = float(qty) if qty is not None else 0.0
@@ -1554,6 +1555,7 @@ def admin_order_summary(customer_id: int, request: Request, db: Session = Depend
                 "line_id": line_id,
                 "product_id": product_id,
                 "name": name,
+                "sku": sku,
                 "unit": unit_code,
                 "qty": qty_f,
                 "qty_disp": _fmt_qty(qty_f, unit_code),
