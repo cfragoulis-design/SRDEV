@@ -114,7 +114,7 @@
               data-customer-id="{{ c.id }}"
               data-customer-name="{{ (c.name or '')|lower }}"
               data-customer-afm="{{ (c.afm or '') }}">
-            <td class="px-4 py-3 text-slate-100">
+            <td class="px-4 py-3 text-slate-100 drag-handle cursor-move select-none">
               <button type="button" class="toggle-order mr-2 inline-flex items-center justify-center w-7 h-7 rounded bg-slate-800 hover:bg-slate-700 text-slate-100"
                       data-customer-id="{{ c.id }}" data-date="{{ date.isoformat() }}">+</button>
               <a href="/admin/restaurants/{{ c.id }}/card" class="font-semibold hover:underline">{{ c.name }}</a>
@@ -218,6 +218,9 @@
     background: transparent;
   }
   .sr-dd-item:hover { background: rgba(255,255,255,0.08); }
+  .drag-handle { cursor: move; }
+  tr[data-row="customer"].sortable-ghost { opacity: .35; }
+  tr[data-row="customer"].sortable-chosen { background: rgba(59,130,246,.18) !important; }
 </style>
 
 <script>
@@ -1136,67 +1139,49 @@ scheduleMidnightRefresh()
 </script>
 </script>
 
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
 <script>
 (function(){
   function initDashboardDragDrop(){
     const tbody = document.getElementById('dashboard-sortable-body');
-    if (!tbody) return;
+    if (!tbody || typeof Sortable === 'undefined') return;
 
-    let draggedRow = null;
-
-    function getSummaryRow(customerRow){
-      if (!customerRow) return null;
-      const next = customerRow.nextElementSibling;
-      return (next && String(next.id || '').startsWith('summary-row-')) ? next : null;
+    function closeAllSummaries(){
+      document.querySelectorAll('tr[id^="summary-row-"]').forEach(function(row){
+        row.classList.add('hidden');
+      });
+      document.querySelectorAll('.toggle-order').forEach(function(btn){
+        btn.textContent = '+';
+      });
+      const expandAll = document.getElementById('expandAllInput');
+      if (expandAll) expandAll.checked = false;
+      try { localStorage.setItem('sr_dash_expand_all', '0'); } catch(e) {}
     }
 
-    function insertPairBefore(referenceRow, movingCustomerRow, movingSummaryRow){
-      if (!tbody || !referenceRow || !movingCustomerRow) return;
-      tbody.insertBefore(movingCustomerRow, referenceRow);
-      if (movingSummaryRow) {
-        tbody.insertBefore(movingSummaryRow, referenceRow);
+    new Sortable(tbody, {
+      animation: 150,
+      draggable: 'tr[data-row="customer"]',
+      handle: '.drag-handle',
+      ghostClass: 'sortable-ghost',
+      chosenClass: 'sortable-chosen',
+      forceFallback: true,
+      fallbackOnBody: true,
+      onStart: function(){
+        closeAllSummaries();
+      },
+      onEnd: function(){
+        const ids = Array.from(tbody.querySelectorAll('tr[data-row="customer"]'))
+          .map(function(r){ return r.getAttribute('data-customer-id'); });
+        console.log('NEW ORDER:', ids);
       }
-    }
-
-    function wireRow(row){
-      if (!row || row.dataset.dragInit === '1') return;
-      row.dataset.dragInit = '1';
-      row.setAttribute('draggable', 'true');
-
-      row.addEventListener('dragstart', function(e){
-        draggedRow = row;
-        row.classList.add('dragging');
-        if (e.dataTransfer) {
-          e.dataTransfer.effectAllowed = 'move';
-          try { e.dataTransfer.setData('text/plain', row.dataset.customerId || ''); } catch(err) {}
-        }
-      });
-
-      row.addEventListener('dragend', function(){
-        row.classList.remove('dragging');
-        draggedRow = null;
-      });
-
-      row.addEventListener('dragover', function(e){
-        if (!draggedRow || draggedRow === row) return;
-        e.preventDefault();
-        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-      });
-
-      row.addEventListener('drop', function(e){
-        if (!draggedRow || draggedRow === row) return;
-        e.preventDefault();
-
-        const movingCustomerRow = draggedRow;
-        const movingSummaryRow = getSummaryRow(movingCustomerRow);
-        insertPairBefore(row, movingCustomerRow, movingSummaryRow);
-      });
-    }
-
-    tbody.querySelectorAll('tr[data-row="customer"]').forEach(wireRow);
+    });
   }
 
-  document.addEventListener('DOMContentLoaded', initDashboardDragDrop);
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initDashboardDragDrop);
+  } else {
+    initDashboardDragDrop();
+  }
 })();
 </script>
 
