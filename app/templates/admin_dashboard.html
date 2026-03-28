@@ -106,7 +106,7 @@
           <th class="text-right px-4 py-3">Actions</th>
         </tr>
       </thead>
-      <tbody>
+      <tbody id="dashboard-sortable-body">
         {% for s in summaries %}
           {% set c = s.customer %}
           <tr class="draggable-row {% if s.completed %}bg-emerald-700/35{% elif s.has_packed %}bg-emerald-700/20{% elif s.has_order %}bg-slate-900/20{% endif %} border-t border-slate-900" data-has-order="{{ 1 if s.has_order else 0 }}"
@@ -114,7 +114,8 @@
               data-customer-id="{{ c.id }}"
               data-customer-name="{{ (c.name or '')|lower }}"
               data-customer-afm="{{ (c.afm or '') }}">
-            <td class="px-4 py-3 text-slate-100 drag-handle cursor-move select-none">
+            <td class="px-4 py-3 text-slate-100">
+              <span class="drag-handle inline-flex items-center justify-center w-6 h-6 mr-2 rounded bg-slate-900/60 text-slate-400 cursor-grab select-none" title="Drag to reorder">↕</span>
               <button type="button" class="toggle-order mr-2 inline-flex items-center justify-center w-7 h-7 rounded bg-slate-800 hover:bg-slate-700 text-slate-100"
                       data-customer-id="{{ c.id }}" data-date="{{ date.isoformat() }}">+</button>
               <a href="/admin/restaurants/{{ c.id }}/card" class="font-semibold hover:underline">{{ c.name }}</a>
@@ -206,9 +207,6 @@
 
 <style>
   .sr-actions-cell { width: 190px; white-space: nowrap; }
-  .draggable-row { cursor: grab; }
-  .draggable-row.dragging { opacity: .55; }
-
   .sr-dd.open .sr-dd-menu { display: block; }
   .sr-dd-item {
     padding: 8px 10px;
@@ -218,9 +216,11 @@
     background: transparent;
   }
   .sr-dd-item:hover { background: rgba(255,255,255,0.08); }
-  .drag-handle { cursor: move; }
-  tr[data-row="customer"].sortable-ghost { opacity: .35; }
-  tr[data-row="customer"].sortable-chosen { background: rgba(59,130,246,.18) !important; }
+
+  #dashboard-sortable-body tr.draggable-row.dragging { opacity: .55; }
+  #dashboard-sortable-body tr.draggable-row.drop-before td { box-shadow: inset 0 2px 0 0 rgba(16,185,129,.9); }
+  #dashboard-sortable-body tr.draggable-row.drop-after td { box-shadow: inset 0 -2px 0 0 rgba(16,185,129,.9); }
+  #dashboard-sortable-body .drag-handle:active { cursor: grabbing; }
 </style>
 
 <script>
@@ -1139,48 +1139,110 @@ scheduleMidnightRefresh()
 </script>
 </script>
 
-<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
 <script>
 (function(){
-  function initDashboardDragDrop(){
+  function initDashboardDrag(){
     const tbody = document.getElementById('dashboard-sortable-body');
-    if (!tbody || typeof Sortable === 'undefined') return;
+    if (!tbody) return;
 
-    function closeAllSummaries(){
-      document.querySelectorAll('tr[id^="summary-row-"]').forEach(function(row){
-        row.classList.add('hidden');
-      });
-      document.querySelectorAll('.toggle-order').forEach(function(btn){
-        btn.textContent = '+';
-      });
-      const expandAll = document.getElementById('expandAllInput');
-      if (expandAll) expandAll.checked = false;
-      try { localStorage.setItem('sr_dash_expand_all', '0'); } catch(e) {}
+    let draggedRow = null;
+    let overRow = null;
+    let overMode = null;
+
+    function isCustomerRow(el){
+      return !!(el && el.matches && el.matches('tr.draggable-row[data-row="customer"]'));
     }
 
-    new Sortable(tbody, {
-      animation: 150,
-      draggable: 'tr[data-row="customer"]',
-      handle: '.drag-handle',
-      ghostClass: 'sortable-ghost',
-      chosenClass: 'sortable-chosen',
-      forceFallback: true,
-      fallbackOnBody: true,
-      onStart: function(){
+    function summaryRowOf(row){
+      const n = row ? row.nextElementSibling : null;
+      return (n && n.id && n.id.indexOf('summary-row-') === 0) ? n : null;
+    }
+
+    function clearDropClasses(){
+      tbody.querySelectorAll('tr.draggable-row.drop-before, tr.draggable-row.drop-after').forEach(r => {
+        r.classList.remove('drop-before','drop-after');
+      });
+    }
+
+    function closeAllSummaries(){
+      tbody.querySelectorAll('tr[id^="summary-row-"]').forEach(r => r.classList.add('hidden'));
+      tbody.querySelectorAll('.toggle-order').forEach(b => { b.textContent = '+'; });
+    }
+
+    function attachRow(row){
+      const handle = row.querySelector('.drag-handle');
+      if (!handle) return;
+      row.setAttribute('draggable', 'true');
+
+      row.addEventListener('dragstart', function(e){
+        if (!e.target.closest('.drag-handle')) {
+          e.preventDefault();
+          return;
+        }
         closeAllSummaries();
-      },
-      onEnd: function(){
-        const ids = Array.from(tbody.querySelectorAll('tr[data-row="customer"]'))
-          .map(function(r){ return r.getAttribute('data-customer-id'); });
+        draggedRow = row;
+        row.classList.add('dragging');
+        try {
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', row.getAttribute('data-customer-id') || '');
+        } catch(err) {}
+      });
+
+      row.addEventListener('dragend', function(){
+        row.classList.remove('dragging');
+        clearDropClasses();
+        draggedRow = null;
+        overRow = null;
+        overMode = null;
+      });
+
+      row.addEventListener('dragover', function(e){
+        if (!draggedRow || draggedRow === row) return;
+        e.preventDefault();
+        const rect = row.getBoundingClientRect();
+        const before = (e.clientY - rect.top) < (rect.height / 2);
+        clearDropClasses();
+        row.classList.add(before ? 'drop-before' : 'drop-after');
+        overRow = row;
+        overMode = before ? 'before' : 'after';
+      });
+
+      row.addEventListener('drop', function(e){
+        if (!draggedRow || !overRow || draggedRow === overRow) return;
+        e.preventDefault();
+
+        const draggedSummary = summaryRowOf(draggedRow);
+        const targetSummary = summaryRowOf(overRow);
+
+        if (overMode === 'before') {
+          tbody.insertBefore(draggedRow, overRow);
+          if (draggedSummary) tbody.insertBefore(draggedSummary, overRow);
+        } else {
+          if (targetSummary && targetSummary.nextSibling) {
+            tbody.insertBefore(draggedRow, targetSummary.nextSibling);
+            if (draggedSummary) tbody.insertBefore(draggedSummary, draggedRow.nextSibling);
+          } else {
+            tbody.appendChild(draggedRow);
+            if (draggedSummary) tbody.appendChild(draggedSummary);
+          }
+        }
+
+        clearDropClasses();
+
+        const ids = Array.from(tbody.querySelectorAll('tr.draggable-row[data-row="customer"]'))
+          .map(r => r.getAttribute('data-customer-id'))
+          .filter(Boolean);
         console.log('NEW ORDER:', ids);
-      }
-    });
+      });
+    }
+
+    tbody.querySelectorAll('tr.draggable-row[data-row="customer"]').forEach(attachRow);
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initDashboardDragDrop);
+    document.addEventListener('DOMContentLoaded', initDashboardDrag);
   } else {
-    initDashboardDragDrop();
+    initDashboardDrag();
   }
 })();
 </script>
