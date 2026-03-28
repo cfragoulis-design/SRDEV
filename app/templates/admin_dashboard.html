@@ -75,7 +75,7 @@
             <th class="text-right px-4 py-2">Σύνολο</th>
           </tr>
         </thead>
-        <tbody id="dashboard-sortable-body">
+        <tbody>
           {% for t in product_totals %}
           <tr class="border-t border-slate-900">
             <td class="px-4 py-2 text-slate-100">{{ t.name }}</td>
@@ -109,7 +109,7 @@
       <tbody>
         {% for s in summaries %}
           {% set c = s.customer %}
-          <tr class="{% if s.completed %}bg-emerald-700/35{% elif s.has_packed %}bg-emerald-700/20{% elif s.has_order %}bg-slate-900/20{% endif %} border-t border-slate-900" data-has-order="{{ 1 if s.has_order else 0 }}"
+          <tr class="draggable-row {% if s.completed %}bg-emerald-700/35{% elif s.has_packed %}bg-emerald-700/20{% elif s.has_order %}bg-slate-900/20{% endif %} border-t border-slate-900" data-has-order="{{ 1 if s.has_order else 0 }}"
               data-row="customer"
               data-customer-id="{{ c.id }}"
               data-customer-name="{{ (c.name or '')|lower }}"
@@ -206,6 +206,9 @@
 
 <style>
   .sr-actions-cell { width: 190px; white-space: nowrap; }
+  .draggable-row { cursor: grab; }
+  .draggable-row.dragging { opacity: .55; }
+
   .sr-dd.open .sr-dd-menu { display: block; }
   .sr-dd-item {
     padding: 8px 10px;
@@ -1132,4 +1135,69 @@ scheduleMidnightRefresh()
 })();
 </script>
 </script>
+
+<script>
+(function(){
+  function initDashboardDragDrop(){
+    const tbody = document.getElementById('dashboard-sortable-body');
+    if (!tbody) return;
+
+    let draggedRow = null;
+
+    function getSummaryRow(customerRow){
+      if (!customerRow) return null;
+      const next = customerRow.nextElementSibling;
+      return (next && String(next.id || '').startsWith('summary-row-')) ? next : null;
+    }
+
+    function insertPairBefore(referenceRow, movingCustomerRow, movingSummaryRow){
+      if (!tbody || !referenceRow || !movingCustomerRow) return;
+      tbody.insertBefore(movingCustomerRow, referenceRow);
+      if (movingSummaryRow) {
+        tbody.insertBefore(movingSummaryRow, referenceRow);
+      }
+    }
+
+    function wireRow(row){
+      if (!row || row.dataset.dragInit === '1') return;
+      row.dataset.dragInit = '1';
+      row.setAttribute('draggable', 'true');
+
+      row.addEventListener('dragstart', function(e){
+        draggedRow = row;
+        row.classList.add('dragging');
+        if (e.dataTransfer) {
+          e.dataTransfer.effectAllowed = 'move';
+          try { e.dataTransfer.setData('text/plain', row.dataset.customerId || ''); } catch(err) {}
+        }
+      });
+
+      row.addEventListener('dragend', function(){
+        row.classList.remove('dragging');
+        draggedRow = null;
+      });
+
+      row.addEventListener('dragover', function(e){
+        if (!draggedRow || draggedRow === row) return;
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+      });
+
+      row.addEventListener('drop', function(e){
+        if (!draggedRow || draggedRow === row) return;
+        e.preventDefault();
+
+        const movingCustomerRow = draggedRow;
+        const movingSummaryRow = getSummaryRow(movingCustomerRow);
+        insertPairBefore(row, movingCustomerRow, movingSummaryRow);
+      });
+    }
+
+    tbody.querySelectorAll('tr[data-row="customer"]').forEach(wireRow);
+  }
+
+  document.addEventListener('DOMContentLoaded', initDashboardDragDrop);
+})();
+</script>
+
 {% endblock %}
