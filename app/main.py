@@ -994,6 +994,47 @@ async def admin_restaurant_products_save(
     audit(db, admin_user, "restaurant.products.update", payload=f"customer_id={c_id}")
     return RedirectResponse(url=f"/admin/restaurants/{c_id}/products", status_code=303)
 
+
+
+class DashboardReorderPayload(BaseModel):
+    customer_ids: list[int] = []
+
+@app.post("/admin/dashboard/reorder")
+def admin_dashboard_reorder(
+    payload: DashboardReorderPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    require_admin(request)
+    ids = [int(x) for x in (payload.customer_ids or []) if str(x).strip()]
+    if not ids:
+        return JSONResponse({"ok": False, "error": "No ids"}, status_code=400)
+
+    existing = db.execute(
+        select(Customer.id).where(Customer.is_active == True).order_by(Customer.dashboard_order.asc(), Customer.name.asc())
+    ).scalars().all()
+    existing_ids = [int(x) for x in existing]
+
+    # keep only valid ids, preserve provided order, append any missing ids at the end
+    provided = []
+    seen = set()
+    for cid in ids:
+        if cid in existing_ids and cid not in seen:
+            provided.append(cid)
+            seen.add(cid)
+    for cid in existing_ids:
+        if cid not in seen:
+            provided.append(cid)
+
+    customers = db.execute(select(Customer).where(Customer.id.in_(provided))).scalars().all()
+    cmap = {int(c.id): c for c in customers}
+    for idx, cid in enumerate(provided, start=1):
+        c = cmap.get(int(cid))
+        if c is not None:
+            c.dashboard_order = idx
+    db.commit()
+    return JSONResponse({"ok": True})
+
 @app.get("/admin/dashboard", response_class=HTMLResponse)
 def admin_dashboard(request: Request, db: Session = Depends(get_db), date_str: str | None = None, show_all: int = 0):
     admin_u = require_admin(request)
@@ -1006,7 +1047,7 @@ def admin_dashboard(request: Request, db: Session = Depends(get_db), date_str: s
 
     only_ordered = 0 if show_all else 1
 
-    customers = db.execute(select(Customer).where(Customer.is_active == True).order_by(Customer.name)).scalars().all()
+    customers = db.execute(select(Customer).where(Customer.is_active == True).order_by(Customer.dashboard_order.asc(), Customer.name.asc())).scalars().all()
     has_packed_col = hasattr(OrderLine, "packed_qty")
 
     summaries = []
@@ -1177,7 +1218,7 @@ def admin_dashboard_live_status(
 
     only_ordered = 0 if show_all else 1
     customers = db.execute(
-        select(Customer).where(Customer.is_active == True).order_by(Customer.name)
+        select(Customer).where(Customer.is_active == True).order_by(Customer.dashboard_order.asc(), Customer.name.asc())
     ).scalars().all()
     has_packed_col = hasattr(OrderLine, "packed_qty")
 

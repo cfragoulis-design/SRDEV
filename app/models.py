@@ -33,6 +33,7 @@ class Customer(Base):
     delivery_days: Mapped[str] = mapped_column(String(60), default="")  # CSV like MON,TUE
     notes: Mapped[str] = mapped_column(Text, default="")
     label_key: Mapped[str] = mapped_column(String(160), default="")
+    dashboard_order: Mapped[int] = mapped_column(Integer, default=0)
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
