@@ -106,16 +106,15 @@
           <th class="text-right px-4 py-3">Actions</th>
         </tr>
       </thead>
-      <tbody id="dashboard-sortable-body">
+      <tbody>
         {% for s in summaries %}
           {% set c = s.customer %}
-          <tr class="draggable-row {% if s.completed %}bg-emerald-700/35{% elif s.has_packed %}bg-emerald-700/20{% elif s.has_order %}bg-slate-900/20{% endif %} border-t border-slate-900" data-has-order="{{ 1 if s.has_order else 0 }}"
+          <tr class="{% if s.completed %}bg-emerald-700/35{% elif s.has_packed %}bg-emerald-700/20{% elif s.has_order %}bg-slate-900/20{% endif %} border-t border-slate-900" data-has-order="{{ 1 if s.has_order else 0 }}"
               data-row="customer"
               data-customer-id="{{ c.id }}"
               data-customer-name="{{ (c.name or '')|lower }}"
               data-customer-afm="{{ (c.afm or '') }}">
             <td class="px-4 py-3 text-slate-100">
-              <span class="drag-handle inline-flex items-center justify-center w-6 h-6 mr-2 rounded bg-slate-900/60 text-slate-400 cursor-grab select-none" title="Drag to reorder">↕</span>
               <button type="button" class="toggle-order mr-2 inline-flex items-center justify-center w-7 h-7 rounded bg-slate-800 hover:bg-slate-700 text-slate-100"
                       data-customer-id="{{ c.id }}" data-date="{{ date.isoformat() }}">+</button>
               <a href="/admin/restaurants/{{ c.id }}/card" class="font-semibold hover:underline">{{ c.name }}</a>
@@ -166,6 +165,8 @@
             <td class="px-4 py-3 text-slate-300" data-col="comment">{{ s.comment if s.comment else "—" }}</td>
             <td class="px-4 py-3 text-right sr-actions-cell">
   <div class="inline-flex items-center justify-end gap-2">
+    <button type="button" class="move-up w-7 h-7 inline-flex items-center justify-center rounded bg-slate-900/60 hover:bg-slate-800 text-slate-100 border border-slate-800 font-semibold" title="Move up">↑</button>
+    <button type="button" class="move-down w-7 h-7 inline-flex items-center justify-center rounded bg-slate-900/60 hover:bg-slate-800 text-slate-100 border border-slate-800 font-semibold" title="Move down">↓</button>
     <a href="/admin/orders/{{ c.id }}/full?date_str={{ date.isoformat() }}&from=dashboard"
        class="bg-slate-800 hover:bg-slate-700 text-slate-100 font-semibold px-3 py-1.5 rounded">
       Open
@@ -216,11 +217,6 @@
     background: transparent;
   }
   .sr-dd-item:hover { background: rgba(255,255,255,0.08); }
-
-  #dashboard-sortable-body tr.draggable-row.dragging { opacity: .55; }
-  #dashboard-sortable-body tr.draggable-row.drop-before td { box-shadow: inset 0 2px 0 0 rgba(16,185,129,.9); }
-  #dashboard-sortable-body tr.draggable-row.drop-after td { box-shadow: inset 0 -2px 0 0 rgba(16,185,129,.9); }
-  #dashboard-sortable-body .drag-handle:active { cursor: grabbing; }
 </style>
 
 <script>
@@ -1141,109 +1137,57 @@ scheduleMidnightRefresh()
 
 <script>
 (function(){
-  function initDashboardDrag(){
-    const tbody = document.getElementById('dashboard-sortable-body');
-    if (!tbody) return;
-
-    let draggedRow = null;
-    let overRow = null;
-    let overMode = null;
-
-    function isCustomerRow(el){
-      return !!(el && el.matches && el.matches('tr.draggable-row[data-row="customer"]'));
-    }
-
-    function summaryRowOf(row){
-      const n = row ? row.nextElementSibling : null;
-      return (n && n.id && n.id.indexOf('summary-row-') === 0) ? n : null;
-    }
-
-    function clearDropClasses(){
-      tbody.querySelectorAll('tr.draggable-row.drop-before, tr.draggable-row.drop-after').forEach(r => {
-        r.classList.remove('drop-before','drop-after');
-      });
-    }
-
-    function closeAllSummaries(){
-      tbody.querySelectorAll('tr[id^="summary-row-"]').forEach(r => r.classList.add('hidden'));
-      tbody.querySelectorAll('.toggle-order').forEach(b => { b.textContent = '+'; });
-    }
-
-    function attachRow(row){
-      const handle = row.querySelector('.drag-handle');
-      if (!handle) return;
-      row.setAttribute('draggable', 'true');
-
-      row.addEventListener('dragstart', function(e){
-        if (!e.target.closest('.drag-handle')) {
-          e.preventDefault();
-          return;
-        }
-        closeAllSummaries();
-        draggedRow = row;
-        row.classList.add('dragging');
-        try {
-          e.dataTransfer.effectAllowed = 'move';
-          e.dataTransfer.setData('text/plain', row.getAttribute('data-customer-id') || '');
-        } catch(err) {}
-      });
-
-      row.addEventListener('dragend', function(){
-        row.classList.remove('dragging');
-        clearDropClasses();
-        draggedRow = null;
-        overRow = null;
-        overMode = null;
-      });
-
-      row.addEventListener('dragover', function(e){
-        if (!draggedRow || draggedRow === row) return;
-        e.preventDefault();
-        const rect = row.getBoundingClientRect();
-        const before = (e.clientY - rect.top) < (rect.height / 2);
-        clearDropClasses();
-        row.classList.add(before ? 'drop-before' : 'drop-after');
-        overRow = row;
-        overMode = before ? 'before' : 'after';
-      });
-
-      row.addEventListener('drop', function(e){
-        if (!draggedRow || !overRow || draggedRow === overRow) return;
-        e.preventDefault();
-
-        const draggedSummary = summaryRowOf(draggedRow);
-        const targetSummary = summaryRowOf(overRow);
-
-        if (overMode === 'before') {
-          tbody.insertBefore(draggedRow, overRow);
-          if (draggedSummary) tbody.insertBefore(draggedSummary, overRow);
-        } else {
-          if (targetSummary && targetSummary.nextSibling) {
-            tbody.insertBefore(draggedRow, targetSummary.nextSibling);
-            if (draggedSummary) tbody.insertBefore(draggedSummary, draggedRow.nextSibling);
-          } else {
-            tbody.appendChild(draggedRow);
-            if (draggedSummary) tbody.appendChild(draggedSummary);
-          }
-        }
-
-        clearDropClasses();
-
-        const ids = Array.from(tbody.querySelectorAll('tr.draggable-row[data-row="customer"]'))
-          .map(r => r.getAttribute('data-customer-id'))
-          .filter(Boolean);
-        console.log('NEW ORDER:', ids);
-      });
-    }
-
-    tbody.querySelectorAll('tr.draggable-row[data-row="customer"]').forEach(attachRow);
+  function customerRows(){
+    return Array.from(document.querySelectorAll('tr[data-row="customer"]'));
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initDashboardDrag);
-  } else {
-    initDashboardDrag();
+  function movePair(row, direction){
+    if (!row) return;
+    const summary = row.nextElementSibling;
+    if (!summary || !summary.id || !summary.id.startsWith('summary-row-')) return;
+
+    const rows = customerRows();
+    const idx = rows.indexOf(row);
+    if (idx < 0) return;
+
+    if (direction === 'up'){
+      if (idx === 0) return;
+      const target = rows[idx - 1];
+      tbodyInsertBeforePair(row, summary, target);
+    } else if (direction === 'down'){
+      if (idx >= rows.length - 1) return;
+      const target = rows[idx + 1];
+      const targetSummary = target.nextElementSibling;
+      if (!targetSummary) return;
+      targetSummary.insertAdjacentElement('afterend', row);
+      row.insertAdjacentElement('afterend', summary);
+    }
   }
+
+  function tbodyInsertBeforePair(row, summary, targetRow){
+    targetRow.parentNode.insertBefore(row, targetRow);
+    row.insertAdjacentElement('afterend', summary);
+  }
+
+  document.addEventListener('click', function(e){
+    const up = e.target.closest('.move-up');
+    const down = e.target.closest('.move-down');
+    if (!up && !down) return;
+
+    const row = e.target.closest("tr[data-row='customer']");
+    if (!row) return;
+
+    // close expanded summary before moving to keep DOM stable
+    const cid = row.getAttribute('data-customer-id');
+    const summaryRow = document.getElementById('summary-row-' + cid);
+    const toggleBtn = row.querySelector('.toggle-order');
+    if (summaryRow && !summaryRow.classList.contains('hidden')) {
+      summaryRow.classList.add('hidden');
+      if (toggleBtn) toggleBtn.textContent = '+';
+    }
+
+    movePair(row, up ? 'up' : 'down');
+  }, true);
 })();
 </script>
 
