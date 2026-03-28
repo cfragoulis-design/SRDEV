@@ -21,6 +21,7 @@ from .utils import slugify
 from .telegram import send_telegram
 
 app = FastAPI()
+app.state.env = os.getenv("ENV", "prod")
 # Static assets (logos, etc.) – safe for Railway
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 try:
