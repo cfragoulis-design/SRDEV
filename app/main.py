@@ -2384,7 +2384,7 @@ def portal_order_get(slug: str, request: Request, db: Session = Depends(get_db),
     if get_portal_customer(request) != canon:
         return RedirectResponse(url=f"/p/{slug}", status_code=302)
 
-    d = tomorrow_local_date()
+    d = today_local_date()
     if date_str:
         try:
             d = date.fromisoformat(date_str)
@@ -2401,7 +2401,7 @@ def portal_order_get(slug: str, request: Request, db: Session = Depends(get_db),
         .join(Product, CustomerProduct.product_id == Product.id)
         .join(Unit, Product.unit_id == Unit.id)
         .where(CustomerProduct.customer_id == c.id, CustomerProduct.is_active == True, Product.is_active == True)
-        .order_by(Product.category, Product.name)
+        .order_by(Product.name.asc())
     ).all()
 
     o = db.execute(select(Order).where(Order.customer_id == c.id, Order.order_date == d)).scalar_one_or_none()

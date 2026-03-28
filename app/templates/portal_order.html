@@ -112,7 +112,7 @@ td:last-child {
   </div>
 {% endif %}
 
-{% if customer.area_route or customer.delivery_days or customer.notes %}
+{% if customer.area_route or customer.delivery_days or customer.notes or true %}
   <div class="mb-4 bg-slate-900/40 border border-slate-800 rounded-2xl px-4 py-3 text-sm">
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
       <div class="flex items-center gap-2 text-slate-300">
@@ -150,6 +150,16 @@ td:last-child {
 <form id="order-form" method="post" action="/p/{{ customer.slug }}/order" class="space-y-4">
   <input type="hidden" name="date_str" value="{{ date.isoformat() }}">
 
+
+  <div class="bg-slate-900/40 border border-slate-800 rounded-2xl p-4">
+    <label for="portal-search" class="text-sm text-slate-300">Αναζήτηση προϊόντος</label>
+    <input
+      id="portal-search"
+      type="text"
+      placeholder="Γράψε π.χ. φιλέτο, μπριζόλα, κιμάς..."
+      class="mt-1 w-full md:max-w-md bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white placeholder:text-slate-500 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition">
+  </div>
+
   <div class="bg-slate-900/40 border border-slate-800 rounded-2xl overflow-hidden">
     <table class="w-full text-sm">
       <thead class="bg-slate-900">
@@ -162,7 +172,7 @@ td:last-child {
       </thead>
       <tbody>
         {% for cp, p, u in items %}
-        <tr class="border-t border-slate-800" data-price="{% if cp.price and cp.price > 0 %}{{ cp.price }}{% else %}0{% endif %}" data-pid="{{ p.id }}">
+        <tr class="border-t border-slate-800 portal-product-row" data-price="{% if cp.price and cp.price > 0 %}{{ cp.price }}{% else %}0{% endif %}" data-pid="{{ p.id }}" data-search="{{ (p.name ~ ' ' ~ (cp.unit_override or u.label_el or u.code))|lower }}">
           <td class="px-4 py-3 font-medium">{{ p.name }}</td>
           <td class="px-4 py-3 text-slate-300">{% if cp.unit_override %}{% if cp.unit_override == 'KG' %}Κιλά{% elif cp.unit_override == 'PCS' %}Τεμ{% elif cp.unit_override == 'BOX' %}Κιβ{% else %}{{ cp.unit_override }}{% endif %}{% else %}{{ u.label_el }}{% endif %}</td>
           <td class="px-4 py-3 text-slate-200">
@@ -181,7 +191,7 @@ td:last-child {
         {% endfor %}
 
         {% if items|length == 0 %}
-        <tr class="border-t border-slate-800" data-price="{% if cp.price and cp.price > 0 %}{{ cp.price }}{% else %}0{% endif %}" data-pid="{{ p.id }}">
+        <tr class="border-t border-slate-800 portal-product-row" data-price="{% if cp.price and cp.price > 0 %}{{ cp.price }}{% else %}0{% endif %}" data-pid="{{ p.id }}" data-search="{{ (p.name ~ ' ' ~ (cp.unit_override or u.label_el or u.code))|lower }}">
           <td colspan="3" class="px-4 py-6 text-slate-300">
             Δεν έχουν οριστεί προϊόντα για το κατάστημα. Επικοινώνησε με το κατάστημα.
           </td>
@@ -407,6 +417,42 @@ td:last-child {
       });
     };
   }
+})();
+</script>
+
+
+<script>
+(function(){
+  const searchInput = document.getElementById('portal-search');
+  const rows = Array.from(document.querySelectorAll('.portal-product-row'));
+  const noResults = document.getElementById('portal-no-results');
+
+  if (!searchInput || !rows.length) return;
+
+  function normalize(str) {
+    return String(str || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+  }
+
+  function applySearch() {
+    const q = normalize(searchInput.value.trim());
+    let visible = 0;
+
+    rows.forEach(function(row){
+      const hay = normalize(row.getAttribute('data-search') || row.textContent || '');
+      const match = !q || hay.includes(q);
+      row.classList.toggle('hidden', !match);
+      if (match) visible += 1;
+    });
+
+    if (noResults) {
+      noResults.classList.toggle('hidden', visible !== 0);
+    }
+  }
+
+  searchInput.addEventListener('input', applySearch);
 })();
 </script>
 

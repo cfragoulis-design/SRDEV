@@ -22,6 +22,12 @@
            placeholder="Search product (Name / SKU)"
            class="w-full rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500">
     <div class="mt-2 text-xs text-slate-500">Tip: ESC clears</div>
+    <div class="mt-3 flex items-center gap-3">
+      <label class="flex items-center gap-2 text-sm text-slate-300">
+        <input id="rp-selected-only" type="checkbox" class="h-4 w-4">
+        Μόνο επιλεγμένα
+      </label>
+    </div>
   </div>
 
 <form method="post" class="mt-6">
@@ -97,19 +103,24 @@
 <script>
 (function(){
   const input = document.getElementById('rp-search');
+  const selectedOnlyEl = document.getElementById('rp-selected-only');
   if(!input) return;
 
   function applyFilter(){
     const q = (input.value || '').trim().toLowerCase();
+    const selectedOnly = !!selectedOnlyEl?.checked;
     const productRows = Array.from(document.querySelectorAll('tr[data-role="product"]'));
     const catRows = Array.from(document.querySelectorAll('tr[data-role="cat"]'));
 
-    // Filter product rows
     productRows.forEach(r => {
       const name = (r.getAttribute('data-name') || '');
       const sku  = (r.getAttribute('data-sku') || '');
-      const ok = !q || name.includes(q) || sku.includes(q);
-      r.style.display = ok ? '' : 'none';
+      const checkbox = r.querySelector('input[type="checkbox"]');
+
+      const matchSearch = !q || name.includes(q) || sku.includes(q);
+      const matchSelected = !selectedOnly || (checkbox && checkbox.checked);
+
+      r.style.display = (matchSearch && matchSelected) ? '' : 'none';
     });
 
     // Hide category rows with no visible products until next category
@@ -128,6 +139,8 @@
   }
 
   input.addEventListener('input', applyFilter);
+  selectedOnlyEl?.addEventListener('change', applyFilter);
+
   document.addEventListener('keydown', (e) => {
     if(e.key === 'Escape'){
       if(input.value){
@@ -137,7 +150,6 @@
     }
   });
 
-  // initial
   applyFilter();
 })();
 </script>
