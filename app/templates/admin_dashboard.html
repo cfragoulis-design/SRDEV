@@ -1132,4 +1132,24 @@ scheduleMidnightRefresh()
 })();
 </script>
 </script>
+
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+<script>
+(function(){
+  const tbody = document.querySelector('tbody');
+  if (!tbody) return;
+
+  new Sortable(tbody, {
+    animation: 150,
+    handle: 'td:first-child',
+    draggable: 'tr[data-row="customer"]',
+    onEnd: function () {
+      const ids = Array.from(document.querySelectorAll('tr[data-row="customer"]'))
+        .map(r => r.getAttribute('data-customer-id'));
+      console.log("NEW ORDER:", ids);
+    }
+  });
+})();
+</script>
+
 {% endblock %}
