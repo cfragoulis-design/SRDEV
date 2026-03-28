@@ -73,5 +73,11 @@
     {% include "partials/announcements_banner.html" %}
     {% block content %}{% endblock %}
   </div>
+
+{% if request and request.app and request.app.state and request.app.state.env == "dev" %}
+<div style="position: fixed; bottom: 10px; right: 10px; background: #ff3b3b; color: white; padding: 6px 10px; border-radius: 8px; font-size: 12px; z-index: 9999; box-shadow: 0 2px 10px rgba(0,0,0,0.3);">
+  DEV
+</div>
+{% endif %}
 </body>
 </html>
