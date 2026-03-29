@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import smtplib
+import requests
 from email.mime.text import MIMEText
 from datetime import datetime, date, timedelta, time as dtime
 from zoneinfo import ZoneInfo
@@ -75,6 +76,7 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
 SMTP_USER = os.getenv("SMTP_USER", "info@sklavounosmeat.gr")
 SMTP_PASS = os.getenv("SMTP_PASS", "")
 FROM_EMAIL = os.getenv("FROM_EMAIL", SMTP_USER)
+BREVO_API_KEY = os.getenv("BREVO_API_KEY", "")
 
 
 def get_cutoff_time() -> tuple[dtime, str]:
@@ -1914,22 +1916,50 @@ def admin_customers_send_test_email(customer_id: int, request: Request, db: Sess
     c = db.get(Customer, customer_id)
     if not c:
         raise HTTPException(404)
+
     target_email = (getattr(c, "email", "") or "").strip()
     if not target_email:
         return RedirectResponse(url="/admin/customers?msg=no_email", status_code=302)
 
+    if not BREVO_API_KEY:
+        print("BREVO ERROR: Missing BREVO_API_KEY")
+        return RedirectResponse(url="/admin/customers?msg=error", status_code=302)
+
     try:
-        msg = MIMEText("Αυτό είναι δοκιμαστικό email από την πλατφόρμα Sklavounos Restaurants.")
-        msg["Subject"] = "Test email from Sklavounos Restaurants"
-        msg["From"] = FROM_EMAIL
-        msg["To"] = target_email
+        payload = {
+            "sender": {
+                "email": FROM_EMAIL,
+                "name": "Sklavounos Meat"
+            },
+            "to": [
+                {"email": target_email}
+            ],
+            "subject": "Test email from Sklavounos Restaurants",
+            "htmlContent": "<p>Αυτό είναι δοκιμαστικό email από την πλατφόρμα Sklavounos Restaurants.</p>"
+        }
 
-        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=25) as server:
-            server.login(SMTP_USER, SMTP_PASS)
-            server.send_message(msg)
+        headers = {
+            "accept": "application/json",
+            "api-key": BREVO_API_KEY,
+            "content-type": "application/json"
+        }
 
-        audit(db, actor=f"admin:{admin_u}", action="customer_send_test_email", payload=f"{c.slug}:{target_email}")
-        return RedirectResponse(url="/admin/customers?msg=sent", status_code=302)
+        response = requests.post(
+            "https://api.brevo.com/v3/smtp/email",
+            json=payload,
+            headers=headers,
+            timeout=20
+        )
+
+        print("BREVO STATUS:", response.status_code)
+        print("BREVO RESPONSE:", response.text)
+
+        if response.status_code in (200, 201):
+            audit(db, actor=f"admin:{admin_u}", action="customer_send_test_email", payload=f"{c.slug}:{target_email}")
+            return RedirectResponse(url="/admin/customers?msg=sent", status_code=302)
+
+        return RedirectResponse(url="/admin/customers?msg=error", status_code=302)
+
     except Exception as e:
         print("EMAIL ERROR:", repr(e))
         return RedirectResponse(url="/admin/customers?msg=error", status_code=302)
@@ -2396,6 +2426,18 @@ def _portal_customer_by_slug_or_alias(db: Session, slug: str) -> tuple[Customer 
         if c2 and bool(c2.is_active):
             return c2, c2.slug
     return None, None
+
+
+@app.post("/p/{slug}/update-contact")
+def update_contact(slug: str, request: Request, email: str = Form(""), phone: str = Form(""), db: Session = Depends(get_db)):
+    c = db.query(Customer).filter(Customer.slug == slug).first()
+    if not c:
+        raise HTTPException(404)
+
+    c.email = (email or "").strip()
+    c.phone = (phone or "").strip()
+    db.commit()
+    return RedirectResponse(url=f"/p/{slug}/order?msg=contact_saved", status_code=302)
 
 @app.get("/p/{slug}", response_class=HTMLResponse)
 def portal_pin_get(slug: str, request: Request, db: Session = Depends(get_db)):
