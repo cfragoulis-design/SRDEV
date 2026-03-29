@@ -1,21 +1,57 @@
+
 {% extends "base.html" %}
 {% block content %}
 {% include "admin_nav.html" %}
 
-<div id="mail-toast-wrap" class="fixed top-4 right-4 z-50 space-y-2">
 {% if msg == "sent" %}
-  <div class="mail-toast bg-emerald-900/95 border border-emerald-700 text-emerald-100 rounded-2xl px-4 py-3 shadow-2xl">Το δοκιμαστικό email στάλθηκε.</div>
+<div id="page-toast" class="mb-4 bg-emerald-900/30 border border-emerald-800 text-emerald-200 rounded-2xl px-4 py-3">Το δοκιμαστικό email στάλθηκε.</div>
 {% elif msg == "message_sent" %}
-  <div class="mail-toast bg-emerald-900/95 border border-emerald-700 text-emerald-100 rounded-2xl px-4 py-3 shadow-2xl">Αποστολή επιτυχής ✓</div>
+<div id="page-toast" class="mb-4 bg-emerald-900/30 border border-emerald-800 text-emerald-200 rounded-2xl px-4 py-3">Η αποστολή ολοκληρώθηκε επιτυχώς.</div>
 {% elif msg == "no_email" %}
-  <div class="mail-toast bg-amber-900/95 border border-amber-700 text-amber-100 rounded-2xl px-4 py-3 shadow-2xl">Ο πελάτης δεν έχει email.</div>
+<div id="page-toast" class="mb-4 bg-amber-900/30 border border-amber-800 text-amber-200 rounded-2xl px-4 py-3">Ο πελάτης δεν έχει email.</div>
 {% elif msg == "error" %}
-  <div class="mail-toast bg-rose-900/95 border border-rose-700 text-rose-100 rounded-2xl px-4 py-3 shadow-2xl">Η αποστολή email απέτυχε. Δες τα Railway logs.</div>
+<div id="page-toast" class="mb-4 bg-rose-900/30 border border-rose-800 text-rose-200 rounded-2xl px-4 py-3">Η αποστολή email απέτυχε. Δες τα Railway logs.</div>
 {% endif %}
-</div>
 
-<div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
-  <div class="lg:col-span-1 bg-slate-900/60 border border-slate-1000 rounded-2xl p-5">
+<style>
+  .customers-table-wrap{overflow:visible;}
+  .customers-table{table-layout:fixed;width:100%;border-collapse:separate;border-spacing:0;font-size:12px;}
+  .customers-table thead th{position:sticky;top:0;z-index:20;background:rgba(15,23,42,.98);backdrop-filter:blur(4px);}
+  .customers-table th,.customers-table td{padding:10px 8px;vertical-align:middle;border-top:1px solid rgba(51,65,85,.7);}
+  .customers-table tbody tr:first-child td{border-top:none;}
+  .customers-table .sticky-col{position:sticky;left:0;z-index:15;background:rgba(2,6,23,.98);box-shadow:10px 0 14px -12px rgba(0,0,0,.9);}
+  .customers-table thead .sticky-col{z-index:25;background:rgba(15,23,42,.99);}
+  .truncate-cell{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .compact-input{height:34px;width:100%;min-width:0;border-radius:12px;padding:0 10px;background:rgba(2,6,23,.85);border:1px solid rgba(51,65,85,.9);}
+  .compact-btn{min-height:34px;border-radius:12px;padding:0 10px;font-size:12px;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;}
+  .compact-btn-wide{min-width:86px;}
+  .status-btn{min-width:80px;}
+  .cell-form{display:flex;gap:6px;align-items:center;min-width:0;}
+  .cell-stack{display:flex;flex-direction:column;gap:4px;min-width:0;}
+  .portal-link{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#a5b4fc;}
+  .email-badge{display:inline-flex;align-items:center;justify-content:center;min-height:28px;padding:0 10px;border-radius:10px;border:1px solid rgba(180,83,9,.9);background:rgba(120,53,15,.25);color:#fde68a;font-size:12px;white-space:nowrap;}
+  .email-text{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e2e8f0;}
+  .erp-card{overflow:visible;}
+  @media (max-width: 1536px){
+    .customers-table{font-size:11px;}
+    .customers-table th,.customers-table td{padding:8px 6px;}
+    .compact-btn{padding:0 8px;font-size:11px;}
+    .compact-input{padding:0 8px;}
+  }
+</style>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function(){
+    const toast = document.getElementById('page-toast');
+    if (toast) {
+      setTimeout(() => { toast.style.transition = 'opacity .35s ease'; toast.style.opacity = '0'; }, 2200);
+      setTimeout(() => { toast.remove(); }, 2700);
+    }
+  });
+</script>
+
+<div class="grid grid-cols-1 xl:grid-cols-4 gap-4">
+  <div class="xl:col-span-1 bg-slate-900/60 border border-slate-800 rounded-2xl p-5 self-start sticky top-4">
     <h2 class="font-semibold mb-3">Νέος Πελάτης</h2>
     <form method="post" action="/admin/customers/create" class="space-y-3">
       <div>
@@ -28,7 +64,6 @@
                type="text" name="afm" required pattern="[0-9]{9}" maxlength="9" inputmode="numeric"
                placeholder="9 ψηφία" />
       </div>
-
       <div>
         <label class="text-sm text-slate-300">PIN</label>
         <input name="pin" class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2" required>
@@ -37,94 +72,105 @@
     </form>
   </div>
 
-  <div class="lg:col-span-3 bg-slate-900/40 border border-slate-800 rounded-2xl overflow-x-auto">
-    <table class="w-full text-sm min-w-[1580px]">
-      <thead class="bg-slate-900">
-        <tr class="text-slate-300">
-          <th class="text-left px-4 py-3">Name</th>
-          <th class="text-left px-4 py-3">Slug</th>
-          <th class="text-left px-4 py-3">Email</th>
-          <th class="text-left px-4 py-3">Edit Slug</th>
-          <th class="text-left px-4 py-3">Delete</th>
-          <th class="text-left px-4 py-3">Portal</th>
-          <th class="text-left px-4 py-3">Open as Customer</th>
-          <th class="text-left px-4 py-3">Send Test Email</th>
-          <th class="text-left px-4 py-3">Send Message</th>
-          <th class="text-left px-4 py-3">Restaurant Card</th>
-          <th class="text-left px-4 py-3">Status</th>
-          <th class="text-left px-4 py-3">Rotate PIN</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for c in customers %}
-        <tr class="border-t border-slate-800 {% if not c.is_active %}opacity-60{% endif %}">
-          <td class="px-4 py-3 font-medium">{{ c.name }}</td>
-          <td class="px-4 py-3 text-slate-300">{{ c.slug }}</td>
-          <td class="px-4 py-3">
-            {% if c.email %}
-              <div class="text-slate-200">{{ c.email }}</div>
-            {% else %}
-              <span class="inline-flex items-center rounded-lg border border-amber-700/60 text-amber-200 px-3 py-1">No email</span>
-            {% endif %}
-          </td>
-          <td class="px-4 py-3">
-            <form method="post" action="/admin/customers/{{ c.id }}/update" class="flex gap-2 items-center">
-              <input type="hidden" name="name" value="{{ c.name }}">
-              <input type="hidden" name="afm" value="{{ c.afm }}">
-              <input name="slug" value="{{ c.slug }}" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 w-44" placeholder="slug">
-              <button class="bg-slate-900 border border-slate-800 hover:bg-slate-800 rounded-xl px-3 py-2">Save</button>
-            </form>
-          </td>
-          <td class="px-4 py-3">
-            <form method="post" action="/admin/customers/{{ c.id }}/delete" onsubmit="return confirm('Να γίνει διαγραφή/απενεργοποίηση;
+  <div class="xl:col-span-3 bg-slate-900/40 border border-slate-800 rounded-2xl p-0 erp-card">
+    <div class="customers-table-wrap rounded-2xl">
+      <table class="customers-table text-slate-100">
+        <colgroup>
+          <col style="width:12%">
+          <col style="width:9%">
+          <col style="width:11%">
+          <col style="width:12%">
+          <col style="width:11%">
+          <col style="width:7%">
+          <col style="width:7%">
+          <col style="width:8%">
+          <col style="width:8%">
+          <col style="width:7%">
+          <col style="width:8%">
+        </colgroup>
+        <thead>
+          <tr class="text-slate-300 uppercase tracking-wide text-[11px]">
+            <th class="text-left sticky-col rounded-tl-2xl">Name</th>
+            <th class="text-left">Slug</th>
+            <th class="text-left">Email</th>
+            <th class="text-left">Edit Slug</th>
+            <th class="text-left">Portal</th>
+            <th class="text-left">Customer</th>
+            <th class="text-left">Test</th>
+            <th class="text-left">Message</th>
+            <th class="text-left">Card</th>
+            <th class="text-left">Status</th>
+            <th class="text-left rounded-tr-2xl">Rotate PIN</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in customers %}
+          <tr class="{% if not c.is_active %}opacity-60{% endif %} hover:bg-slate-800/25">
+            <td class="sticky-col font-medium truncate-cell" title="{{ c.name }}">{{ c.name }}</td>
+            <td class="truncate-cell text-slate-300" title="{{ c.slug }}">{{ c.slug }}</td>
+            <td>
+              {% if c.email %}
+                <span class="email-text" title="{{ c.email }}">{{ c.email }}</span>
+              {% else %}
+                <span class="email-badge">No email</span>
+              {% endif %}
+            </td>
+            <td>
+              <form method="post" action="/admin/customers/{{ c.id }}/update" class="cell-form">
+                <input type="hidden" name="name" value="{{ c.name }}">
+                <input type="hidden" name="afm" value="{{ c.afm }}">
+                <input name="slug" value="{{ c.slug }}" class="compact-input" placeholder="slug">
+                <button class="compact-btn bg-slate-900 border border-slate-800 hover:bg-slate-800">Save</button>
+              </form>
+            </td>
+            <td>
+              <div class="cell-stack">
+                <a class="portal-link" href="/p/{{ c.slug }}" target="_blank" title="/p/{{ c.slug }}">/p/{{ c.slug }}</a>
+                <form method="post" action="/admin/customers/{{ c.id }}/delete" onsubmit="return confirm('Να γίνει διαγραφή/απενεργοποίηση;
 
 Αν υπάρχουν παραγγελίες, ο πελάτης θα απενεργοποιηθεί και θα μετονομαστεί ώστε να μπορείς να τον ξαναπεράσεις.');">
-              <button class="bg-rose-900/40 border border-rose-800 hover:bg-rose-900/60 text-rose-200 rounded-xl px-3 py-2">Delete</button>
-            </form>
-          </td>
-          <td class="px-4 py-3">
-            <a class="text-indigo-300 hover:underline" href="/p/{{ c.slug }}" target="_blank">/p/{{ c.slug }}</a>
-          </td>
-          <td class="px-4 py-3">
-            <a class="bg-indigo-600 hover:bg-indigo-500 rounded-xl px-3 py-2 inline-flex text-white" href="/admin/customers/{{ c.id }}/open-portal" target="_blank">Open</a>
-          </td>
-          <td class="px-4 py-3">
-            <a class="bg-slate-900 border border-slate-800 hover:bg-slate-800 rounded-xl px-3 py-2 inline-flex" href="/admin/customers/{{ c.id }}/send-test-email">Send Email</a>
-          </td>
-          <td class="px-4 py-3">
-            <a class="bg-slate-900 border border-slate-800 hover:bg-slate-800 rounded-xl px-3 py-2 inline-flex" href="/admin/customers/{{ c.id }}/send-message">Send Message</a>
-          </td>
-          <td class="px-4 py-3">
-            <a class="bg-slate-900 border border-slate-800 hover:bg-slate-800 rounded-xl px-3 py-2 inline-flex" href="/admin/restaurants/{{ c.id }}">Open</a>
-          </td>
-          <td class="px-4 py-3">
-            <form method="post" action="/admin/customers/{{ c.id }}/toggle_active">
-              <button class="px-3 py-1 rounded-lg border {% if c.is_active %}border-emerald-700/60 text-emerald-200 hover:bg-emerald-900/30{% else %}border-slate-700 text-slate-300 hover:bg-slate-800/40{% endif %}">
-                {% if c.is_active %}Active{% else %}Inactive{% endif %}
-              </button>
-            </form>
-          </td>
-          <td class="px-4 py-3">
-            <form method="post" action="/admin/customers/{{ c.id }}/rotate-pin" class="flex gap-2">
-              <input name="new_pin" placeholder="New PIN" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 w-32" required>
-              <button class="bg-slate-900 border border-slate-800 hover:bg-slate-800 rounded-xl px-3 py-2">Save</button>
-            </form>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+                  <button class="compact-btn bg-rose-900/40 border border-rose-800 hover:bg-rose-900/60 text-rose-200 compact-btn-wide">Delete</button>
+                </form>
+              </div>
+            </td>
+            <td>
+              <a class="compact-btn compact-btn-wide bg-indigo-600 hover:bg-indigo-500 text-white" href="/admin/customers/{{ c.id }}/open-portal" target="_blank">Open</a>
+            </td>
+            <td>
+              {% if c.email %}
+                <a class="compact-btn compact-btn-wide bg-slate-900 border border-slate-800 hover:bg-slate-800" href="/admin/customers/{{ c.id }}/send-test-email">Send Email</a>
+              {% else %}
+                <span class="email-badge">No email</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if c.email %}
+                <a class="compact-btn compact-btn-wide bg-slate-900 border border-slate-800 hover:bg-slate-800" href="/admin/customers/{{ c.id }}/send-message">Send Message</a>
+              {% else %}
+                <span class="email-badge">No email</span>
+              {% endif %}
+            </td>
+            <td>
+              <a class="compact-btn compact-btn-wide bg-slate-900 border border-slate-800 hover:bg-slate-800" href="/admin/restaurants/{{ c.id }}">Open</a>
+            </td>
+            <td>
+              <form method="post" action="/admin/customers/{{ c.id }}/toggle_active">
+                <button class="compact-btn status-btn border {% if c.is_active %}border-emerald-700/60 text-emerald-200 hover:bg-emerald-900/30{% else %}border-slate-700 text-slate-300 hover:bg-slate-800/40{% endif %}">
+                  {% if c.is_active %}Active{% else %}Inactive{% endif %}
+                </button>
+              </form>
+            </td>
+            <td>
+              <form method="post" action="/admin/customers/{{ c.id }}/rotate-pin" class="cell-form">
+                <input name="new_pin" placeholder="New PIN" class="compact-input" required>
+                <button class="compact-btn bg-slate-900 border border-slate-800 hover:bg-slate-800">Save</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
 </div>
-
-<script>
-  setTimeout(function () {
-    document.querySelectorAll('.mail-toast').forEach(function (el) {
-      el.style.transition = 'opacity 0.35s ease, transform 0.35s ease';
-      el.style.opacity = '0';
-      el.style.transform = 'translateY(-6px)';
-      setTimeout(function () { el.remove(); }, 400);
-    });
-  }, 2400);
-</script>
 {% endblock %}
