@@ -97,14 +97,8 @@ td:last-child {
 </script>
 
 {% if message %}
-  <div class="mb-4 bg-emerald-900/30 border border-emerald-800 text-emerald-200 rounded-2xl px-4 py-3">
-    {{ message }}
-  </div>
-{% endif %}
-
-{% if pwd_error %}
   <div class="mb-4 bg-rose-900/30 border border-rose-800 text-rose-200 rounded-2xl px-4 py-3">
-    {{ pwd_error }}
+    {{ message }}
   </div>
 {% endif %}
 
@@ -227,29 +221,6 @@ td:last-child {
     </button>
   </div>
 </form>
-
-
-<div class="bg-slate-900/40 border border-slate-800 rounded-2xl p-4">
-  <h3 class="text-sm font-semibold text-slate-200 mb-3">Αλλαγή PIN</h3>
-  <form method="post" action="/p/{{ customer.slug }}/change-pin" class="grid grid-cols-1 md:grid-cols-4 gap-3">
-    <input type="hidden" name="current_date" value="{{ date.isoformat() }}">
-    <div>
-      <label class="text-sm text-slate-300">Τρέχον PIN</label>
-      <input type="password" name="current_pin" class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2" required {% if locked or submitted %}{% endif %}>
-    </div>
-    <div>
-      <label class="text-sm text-slate-300">Νέο PIN</label>
-      <input type="password" name="new_pin" class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2" required>
-    </div>
-    <div>
-      <label class="text-sm text-slate-300">Επιβεβαίωση</label>
-      <input type="password" name="confirm_pin" class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2" required>
-    </div>
-    <div class="flex items-end">
-      <button class="w-full bg-slate-900 border border-slate-700 hover:bg-slate-800 rounded-xl px-3 py-2">Αλλαγή PIN</button>
-    </div>
-  </form>
-</div>
 
 {% if history_orders and history_orders|length > 0 %}
   <div class="mt-8">

@@ -106,16 +106,15 @@
           <th class="text-right px-4 py-3">Actions</th>
         </tr>
       </thead>
-      {% for s in summaries %}
+      <tbody>
+        {% for s in summaries %}
           {% set c = s.customer %}
-      <tbody class="dashboard-sort-group" data-sort-customer-id="{{ c.id }}">
           <tr class="{% if s.completed %}bg-emerald-700/35{% elif s.has_packed %}bg-emerald-700/20{% elif s.has_order %}bg-slate-900/20{% endif %} border-t border-slate-900" data-has-order="{{ 1 if s.has_order else 0 }}"
               data-row="customer"
               data-customer-id="{{ c.id }}"
               data-customer-name="{{ (c.name or '')|lower }}"
               data-customer-afm="{{ (c.afm or '') }}">
             <td class="px-4 py-3 text-slate-100">
-              <span class="dash-drag-handle mr-2 inline-flex items-center justify-center w-7 h-7 rounded bg-slate-900/60 hover:bg-slate-800 text-slate-200 border border-slate-800 cursor-grab select-none" title="Drag to reorder">↕</span>
               <button type="button" class="toggle-order mr-2 inline-flex items-center justify-center w-7 h-7 rounded bg-slate-800 hover:bg-slate-700 text-slate-100"
                       data-customer-id="{{ c.id }}" data-date="{{ date.isoformat() }}">+</button>
               <a href="/admin/restaurants/{{ c.id }}/card" class="font-semibold hover:underline">{{ c.name }}</a>
@@ -199,8 +198,8 @@
               <div id="summary-{{ c.id }}" class="bg-slate-950/30 border border-slate-800 rounded-lg p-4"></div>
             </td>
           </tr>
-      </tbody>
         {% endfor %}
+      </tbody>
     </table>
   </div>
 </div>
@@ -216,8 +215,6 @@
     background: transparent;
   }
   .sr-dd-item:hover { background: rgba(255,255,255,0.08); }
-  .sr-drag-ghost { opacity: .35; }
-  .sr-drag-chosen .dash-drag-handle { cursor: grabbing; }
 </style>
 
 <script>
@@ -923,7 +920,6 @@ scheduleMidnightRefresh()
     if (liveBusy) return;
     if (document.hidden) return;
     if (isEditingNow()) return;
-    if (hasOpenSummary()) return;
 
     liveBusy = true;
     try {
@@ -967,11 +963,62 @@ scheduleMidnightRefresh()
   function isUserEditing(){
     const el = document.activeElement;
     if (!el) return false;
-    const tag = (el.tagName || '').toUpperCase();
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
-    if (el.isContentEditable) return true;
+    // Do not block expanded-summary sync just because a summary is open.
+    // Block only while the user is actively typing in packed inputs.
     if (el.classList && el.classList.contains('packed-inline')) return true;
+    if (el.isContentEditable) return true;
     return false;
+  }
+
+  function updateDashboardRowFromSummary(customerId, box){
+    try {
+      const summaryEl = box.querySelector('.order-summary');
+      if (!summaryEl) return;
+
+      const pc = Number(summaryEl.getAttribute('data-packed-count') || '0');
+      const tc = Number(summaryEl.getAttribute('data-total-count') || '0');
+      const hasOrder = tc > 0;
+      const hasPacked = pc > 0;
+      const completed = hasOrder && pc === tc && tc > 0;
+
+      const rowEl = document.querySelector(`tr[data-row="customer"][data-customer-id="${customerId}"]`);
+      if (!rowEl) return;
+
+      rowEl.dataset.hasOrder = hasOrder ? '1' : '0';
+      rowEl.classList.remove('bg-emerald-700/35', 'bg-emerald-700/20', 'bg-slate-900/20');
+      if (completed) rowEl.classList.add('bg-emerald-700/35');
+      else if (hasPacked) rowEl.classList.add('bg-emerald-700/20');
+      else if (hasOrder) rowEl.classList.add('bg-slate-900/20');
+
+      const stCell = rowEl.querySelector('td[data-col="status"]');
+      if (!stCell) return;
+
+      if (!hasOrder) {
+        stCell.innerHTML = `
+          <span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-slate-800 bg-slate-950/30 text-slate-300">
+            <span class="w-2 h-2 rounded-full bg-slate-500"></span>No Order
+          </span>
+        `.trim();
+      } else if (completed) {
+        stCell.innerHTML = `
+          <span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-emerald-800 bg-emerald-900/20 text-emerald-200">
+            <span class="w-2 h-2 rounded-full bg-emerald-400"></span>Completed
+          </span>
+        `.trim();
+      } else if (hasPacked) {
+        stCell.innerHTML = `
+          <span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-emerald-800/70 bg-emerald-900/10 text-emerald-100">
+            <span class="w-2 h-2 rounded-full bg-emerald-300"></span>Packed
+          </span>
+        `.trim();
+      } else {
+        stCell.innerHTML = `
+          <span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-slate-800 bg-slate-950/20 text-slate-200">
+            <span class="w-2 h-2 rounded-full bg-slate-300"></span>Ordered
+          </span>
+        `.trim();
+      }
+    } catch(e) {}
   }
 
   async function fetchSummaryHtml(customerId, dateStr){
@@ -1009,86 +1056,31 @@ scheduleMidnightRefresh()
 
       for (const row of payload.rows) {
         const cid = String(row.customer_id || '');
-         if (!cid) continue;
+        if (!cid) continue;
 
-      const box = qs(`summary-${cid}`);
-      if (!box) continue;
-
-      try {
-      const html = await fetchSummaryHtml(cid, payload.date || dateStr);
-
-          if (box.innerHTML.trim() !== html.trim()) {
-        box.innerHTML = html;
-      }
-
-  } catch (e) {
-    console.warn("summary refresh error", cid);
-  }
-}
+        const box = qs(`summary-${cid}`);
+        if (!box) continue;
 
         if (!row.has_order) {
           window.location.reload();
           return;
         }
 
+        const currentVersion = String(row.summary_hash || row.updated_at || row.version || row.meta_hash || JSON.stringify(row));
+        const prevVersion = String(openSummaryVersionMap.get(cid) || '');
+
+        if (!prevVersion) {
+          openSummaryVersionMap.set(cid, currentVersion);
+          continue;
+        }
+
         if (currentVersion !== prevVersion) {
-          const box = qs(`summary-${cid}`);
-          if (!box) {
-            openSummaryVersionMap.set(cid, currentVersion);
-            continue;
-          }
           try {
             const html = await fetchSummaryHtml(cid, payload.date || dateStr);
-            box.innerHTML = html;
-
-            const summaryEl = box.querySelector('.order-summary');
-            if (summaryEl) {
-              const pc = Number(summaryEl.getAttribute('data-packed-count') || '0');
-              const tc = Number(summaryEl.getAttribute('data-total-count') || '0');
-              const hasOrder = tc > 0;
-              const hasPacked = pc > 0;
-              const completed = hasOrder && pc === tc && tc > 0;
-
-              const rowEl = document.querySelector(`tr[data-row="customer"][data-customer-id="${cid}"]`);
-              if (rowEl) {
-                rowEl.dataset.hasOrder = hasOrder ? '1' : '0';
-
-                rowEl.classList.remove('bg-emerald-700/35', 'bg-emerald-700/20', 'bg-slate-900/20');
-                if (completed) rowEl.classList.add('bg-emerald-700/35');
-                else if (hasPacked) rowEl.classList.add('bg-emerald-700/20');
-                else if (hasOrder) rowEl.classList.add('bg-slate-900/20');
-
-                const stCell = rowEl.querySelector('td[data-col="status"]');
-                if (stCell) {
-                  if (!hasOrder) {
-                    stCell.innerHTML = `
-                      <span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-slate-800 bg-slate-950/30 text-slate-300">
-                        <span class="w-2 h-2 rounded-full bg-slate-500"></span>No Order
-                      </span>
-                    `.trim();
-                  } else if (completed) {
-                    stCell.innerHTML = `
-                      <span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-emerald-800 bg-emerald-900/20 text-emerald-200">
-                        <span class="w-2 h-2 rounded-full bg-emerald-400"></span>Completed
-                      </span>
-                    `.trim();
-                  } else if (hasPacked) {
-                    stCell.innerHTML = `
-                      <span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-emerald-800/70 bg-emerald-900/10 text-emerald-100">
-                        <span class="w-2 h-2 rounded-full bg-emerald-300"></span>Packed
-                      </span>
-                    `.trim();
-                  } else {
-                    stCell.innerHTML = `
-                      <span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-slate-800 bg-slate-950/20 text-slate-200">
-                        <span class="w-2 h-2 rounded-full bg-slate-300"></span>Ordered
-                      </span>
-                    `.trim();
-                  }
-                }
-              }
+            if (box.innerHTML.trim() !== html.trim()) {
+              box.innerHTML = html;
             }
-
+            updateDashboardRowFromSummary(cid, box);
             openSummaryVersionMap.set(cid, currentVersion);
           } catch (e) {}
         }
@@ -1110,12 +1102,28 @@ scheduleMidnightRefresh()
     if (!btn) return;
     const cid = String(btn.getAttribute('data-customer-id') || '');
     if (!cid) return;
-    setTimeout(function(){
+    setTimeout(async function(){
       const row = qs(`summary-row-${cid}`);
       if (!row || row.classList.contains('hidden')) {
         openSummaryVersionMap.delete(cid);
         return;
       }
+
+      const dateInput = qs('dateInput');
+      const dateStr = (dateInput && dateInput.value) ? dateInput.value : '';
+      try {
+        const resp = await fetch('/admin/dashboard/open-summary-status?ids=' + encodeURIComponent(cid) + (dateStr ? '&date_str=' + encodeURIComponent(dateStr) : ''), {
+          credentials: 'same-origin',
+          headers: { 'Accept': 'application/json' }
+        });
+        if (!resp.ok) return;
+        const payload = await resp.json();
+        if (!payload || !payload.ok || !Array.isArray(payload.rows) || !payload.rows.length) return;
+        const meta = payload.rows[0];
+        const currentVersion = String(meta.summary_hash || meta.updated_at || meta.version || meta.meta_hash || JSON.stringify(meta));
+        openSummaryVersionMap.set(cid, currentVersion);
+      } catch (e) {}
+
       refreshChangedOpenSummaries();
     }, 50);
   }, true);
@@ -1123,53 +1131,5 @@ scheduleMidnightRefresh()
   setInterval(refreshChangedOpenSummaries, OPEN_SUMMARY_META_MS);
 })();
 </script>
-
-<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
-<script>
-(function(){
-  function getDashboardTable(){
-    return document.querySelector('.bg-slate-950\/40.border.border-slate-800.rounded-xl.overflow-hidden table');
-  }
-  async function saveOrder(){
-    const ids = Array.from(document.querySelectorAll('tbody.dashboard-sort-group'))
-      .map(tb => Number(tb.getAttribute('data-sort-customer-id') || '0'))
-      .filter(Boolean);
-    try{
-      await fetch('/admin/dashboard/reorder', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ customer_ids: ids })
-      });
-    }catch(e){}
-  }
-  function closeAllOpenSummaries(){
-    document.querySelectorAll('tr[id^="summary-row-"]:not(.hidden)').forEach(function(row){
-      row.classList.add('hidden');
-    });
-    document.querySelectorAll('.toggle-order').forEach(function(btn){ btn.textContent = '+'; });
-  }
-  function initSortable(){
-    const table = getDashboardTable();
-    if (!table) return;
-    if (typeof Sortable === 'undefined') return;
-    if (table._srSortableReady) return;
-    table._srSortableReady = true;
-    new Sortable(table, {
-      animation: 150,
-      draggable: 'tbody.dashboard-sort-group',
-      handle: '.dash-drag-handle',
-      ghostClass: 'sr-drag-ghost',
-      chosenClass: 'sr-drag-chosen',
-      forceFallback: true,
-      fallbackOnBody: true,
-      onStart: function(){ closeAllOpenSummaries(); },
-      onEnd: function(){ saveOrder(); }
-    });
-  }
-  document.addEventListener('DOMContentLoaded', initSortable);
-  setTimeout(initSortable, 0);
-})();
 </script>
-
 {% endblock %}
