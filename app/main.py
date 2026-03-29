@@ -10,11 +10,11 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
-from sqlalchemy import select, text, inspect, func, delete
+from sqlalchemy import select, text, inspect, func, delete, bindparam
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from .db import Base, engine, get_db
-from .models import AdminUser, Customer, CustomerSlugAlias, Unit, Product, CustomerProduct, Order, OrderLine, AuditLog, Announcement, AnnouncementRead, PrintJob, DashboardPriority
+from .models import AdminUser, Customer, CustomerSlugAlias, Unit, Product, CustomerProduct, Order, OrderLine, AuditLog, Announcement, AnnouncementRead, PrintJob
 from .security import hash_secret, verify_secret
 from .auth import sign_session, get_admin_username, get_portal_customer
 from .utils import slugify
@@ -408,6 +408,46 @@ def lock_job():
         if changed:
             db.commit()
 
+
+
+def ensure_dashboard_priorities_table() -> None:
+    with engine.begin() as conn:
+        dialect = conn.dialect.name
+        if dialect == "sqlite":
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS dashboard_priorities (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    dashboard_date DATE NOT NULL,
+                    customer_id INTEGER NOT NULL,
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(dashboard_date, customer_id),
+                    FOREIGN KEY(customer_id) REFERENCES customers(id)
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_dashboard_priorities_date_order ON dashboard_priorities(dashboard_date, sort_order)"))
+        else:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS dashboard_priorities (
+                    id SERIAL PRIMARY KEY,
+                    dashboard_date DATE NOT NULL,
+                    customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    updated_at TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(dashboard_date, customer_id)
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_dashboard_priorities_date_order ON dashboard_priorities(dashboard_date, sort_order)"))
+
+
+def load_dashboard_priority_map(db: Session, d: date) -> dict[int, int]:
+    rows = db.execute(
+        text("SELECT customer_id, sort_order FROM dashboard_priorities WHERE dashboard_date = :d ORDER BY sort_order ASC, customer_id ASC"),
+        {"d": d},
+    ).all()
+    return {int(customer_id): int(sort_order) for customer_id, sort_order in rows}
 @app.on_event("startup")
 def on_startup():
     Base.metadata.create_all(bind=engine)
@@ -417,6 +457,7 @@ def on_startup():
     ensure_orders_extra_columns()
     ensure_order_lines_extra_columns()
     ensure_announcements_v2_schema()
+    ensure_dashboard_priorities_table()
     with next(get_db()) as db:  # type: ignore
         ensure_units(db)
         ensure_admins(db)
@@ -1091,16 +1132,8 @@ def admin_dashboard(request: Request, db: Session = Depends(get_db), date_str: s
             }
         )
 
-    priority_rows = db.execute(
-        select(DashboardPriority.customer_id, DashboardPriority.position)
-        .where(DashboardPriority.order_date == d)
-        .order_by(DashboardPriority.position.asc(), DashboardPriority.id.asc())
-    ).all()
-    priority_map = {int(cid): int(pos or 0) for cid, pos in priority_rows}
-    summaries = sorted(
-        summaries,
-        key=lambda s: (0 if s["customer"].id in priority_map else 1, priority_map.get(s["customer"].id, 10**9), (s["customer"].name or "").lower()),
-    )
+    priority_map = load_dashboard_priority_map(db, d)
+    summaries.sort(key=lambda s: (priority_map.get(int(s["customer"].id), 10**9), (s["customer"].name or "").lower()))
 
     # Aggregate product totals for the selected day (quick prep view).
     # Uses ordered quantities (qty) across all active customers' orders.
@@ -1169,43 +1202,53 @@ def admin_dashboard(request: Request, db: Session = Depends(get_db), date_str: s
     )
 
 
-@app.post("/admin/dashboard/save-priority")
-async def admin_dashboard_save_priority(request: Request, db: Session = Depends(get_db)):
+@app.post("/admin/dashboard/save-order")
+async def admin_dashboard_save_order(request: Request, db: Session = Depends(get_db)):
     admin_u = require_admin(request)
     payload = await request.json()
+    date_str = str((payload or {}).get("date_str") or "").strip()
+    ids = (payload or {}).get("customer_ids") or []
 
     try:
-        d = date.fromisoformat(str(payload.get("date_str") or "").strip())
+        d = date.fromisoformat(date_str)
     except Exception:
         return JSONResponse({"ok": False, "error": "invalid_date"}, status_code=400)
 
-    raw_ids = payload.get("customer_ids") or []
-    if not isinstance(raw_ids, list):
-        return JSONResponse({"ok": False, "error": "invalid_customer_ids"}, status_code=400)
-
-    customer_ids = []
-    seen = set()
-    for raw in raw_ids:
+    clean_ids: list[int] = []
+    seen: set[int] = set()
+    for raw in ids:
         try:
             cid = int(raw)
         except Exception:
             continue
         if cid <= 0 or cid in seen:
             continue
+        clean_ids.append(cid)
         seen.add(cid)
-        customer_ids.append(cid)
 
-    db.execute(delete(DashboardPriority).where(DashboardPriority.order_date == d))
-    for pos, cid in enumerate(customer_ids, start=1):
-        db.add(DashboardPriority(order_date=d, customer_id=cid, position=pos))
-    db.commit()
+    if not clean_ids:
+        return JSONResponse({"ok": False, "error": "empty_order"}, status_code=400)
 
-    try:
-        audit(db, str(admin_u.username), "dashboard_priority_saved", f"date={d.isoformat()} ids={','.join(str(x) for x in customer_ids)}")
-    except Exception:
-        pass
+    existing_ids = {int(x) for (x,) in db.execute(select(Customer.id).where(Customer.id.in_(clean_ids))).all()}
+    clean_ids = [cid for cid in clean_ids if cid in existing_ids]
+    if not clean_ids:
+        return JSONResponse({"ok": False, "error": "no_valid_customers"}, status_code=400)
 
-    return JSONResponse({"ok": True, "count": len(customer_ids)})
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM dashboard_priorities WHERE dashboard_date = :d AND customer_id IN :ids").bindparams(bindparam("ids", expanding=True)), {"d": d, "ids": clean_ids})
+        rows = [{"d": d, "cid": cid, "sort_order": idx} for idx, cid in enumerate(clean_ids)]
+        if conn.dialect.name == "sqlite":
+            conn.execute(text("INSERT OR REPLACE INTO dashboard_priorities (dashboard_date, customer_id, sort_order, updated_at) VALUES (:d, :cid, :sort_order, CURRENT_TIMESTAMP)"), rows)
+        else:
+            conn.execute(text("""
+                INSERT INTO dashboard_priorities (dashboard_date, customer_id, sort_order, updated_at)
+                VALUES (:d, :cid, :sort_order, NOW())
+                ON CONFLICT (dashboard_date, customer_id)
+                DO UPDATE SET sort_order = EXCLUDED.sort_order, updated_at = NOW()
+            """), rows)
+
+    audit(db, admin_u, "dashboard.reorder", payload=f"date={d.isoformat()};ids={','.join(str(x) for x in clean_ids)}")
+    return JSONResponse({"ok": True, "saved": len(clean_ids)})
 
 
 @app.get("/admin/dashboard/live-status")
