@@ -21,7 +21,6 @@ from .utils import slugify
 from .telegram import send_telegram
 
 app = FastAPI()
-app.state.env = os.getenv("ENV", "prod")
 # Static assets (logos, etc.) – safe for Railway
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 try:
@@ -994,47 +993,6 @@ async def admin_restaurant_products_save(
     audit(db, admin_user, "restaurant.products.update", payload=f"customer_id={c_id}")
     return RedirectResponse(url=f"/admin/restaurants/{c_id}/products", status_code=303)
 
-
-
-class DashboardReorderPayload(BaseModel):
-    customer_ids: list[int] = []
-
-@app.post("/admin/dashboard/reorder")
-def admin_dashboard_reorder(
-    payload: DashboardReorderPayload,
-    request: Request,
-    db: Session = Depends(get_db),
-):
-    require_admin(request)
-    ids = [int(x) for x in (payload.customer_ids or []) if str(x).strip()]
-    if not ids:
-        return JSONResponse({"ok": False, "error": "No ids"}, status_code=400)
-
-    existing = db.execute(
-        select(Customer.id).where(Customer.is_active == True).order_by(Customer.dashboard_order.asc(), Customer.name.asc())
-    ).scalars().all()
-    existing_ids = [int(x) for x in existing]
-
-    # keep only valid ids, preserve provided order, append any missing ids at the end
-    provided = []
-    seen = set()
-    for cid in ids:
-        if cid in existing_ids and cid not in seen:
-            provided.append(cid)
-            seen.add(cid)
-    for cid in existing_ids:
-        if cid not in seen:
-            provided.append(cid)
-
-    customers = db.execute(select(Customer).where(Customer.id.in_(provided))).scalars().all()
-    cmap = {int(c.id): c for c in customers}
-    for idx, cid in enumerate(provided, start=1):
-        c = cmap.get(int(cid))
-        if c is not None:
-            c.dashboard_order = idx
-    db.commit()
-    return JSONResponse({"ok": True})
-
 @app.get("/admin/dashboard", response_class=HTMLResponse)
 def admin_dashboard(request: Request, db: Session = Depends(get_db), date_str: str | None = None, show_all: int = 0):
     admin_u = require_admin(request)
@@ -1047,7 +1005,7 @@ def admin_dashboard(request: Request, db: Session = Depends(get_db), date_str: s
 
     only_ordered = 0 if show_all else 1
 
-    customers = db.execute(select(Customer).where(Customer.is_active == True).order_by(Customer.dashboard_order.asc(), Customer.name.asc())).scalars().all()
+    customers = db.execute(select(Customer).where(Customer.is_active == True).order_by(Customer.name)).scalars().all()
     has_packed_col = hasattr(OrderLine, "packed_qty")
 
     summaries = []
@@ -1218,7 +1176,7 @@ def admin_dashboard_live_status(
 
     only_ordered = 0 if show_all else 1
     customers = db.execute(
-        select(Customer).where(Customer.is_active == True).order_by(Customer.dashboard_order.asc(), Customer.name.asc())
+        select(Customer).where(Customer.is_active == True).order_by(Customer.name)
     ).scalars().all()
     has_packed_col = hasattr(OrderLine, "packed_qty")
 
@@ -1930,6 +1888,17 @@ def admin_customers(request: Request, db: Session = Depends(get_db)):
     customers = db.execute(select(Customer).order_by(Customer.name)).scalars().all()
     return templates.TemplateResponse("admin_customers.html", {"request": request, "admin_user": admin_u, "customers": customers})
 
+@app.get("/admin/customers/{customer_id}/open-portal")
+def admin_customers_open_portal(customer_id: int, request: Request, db: Session = Depends(get_db)):
+    admin_u = require_admin(request)
+    c = db.get(Customer, customer_id)
+    if not c or not bool(c.is_active):
+        raise HTTPException(404)
+    resp = RedirectResponse(url=f"/p/{c.slug}/order", status_code=302)
+    resp.set_cookie("portal_session", sign_session({"c": c.slug}), httponly=True, samesite="lax")
+    audit(db, actor=f"admin:{admin_u}", action="customer_open_portal", payload=c.slug)
+    return resp
+
 @app.post("/admin/customers/create")
 def admin_customers_create(request: Request, afm: str = Form(""), db: Session = Depends(get_db), name: str = Form(""), pin: str = Form(...)):
     admin_u = require_admin(request)
@@ -2418,7 +2387,7 @@ def portal_pin_post(slug: str, request: Request, db: Session = Depends(get_db), 
     return resp
 
 @app.get("/p/{slug}/order", response_class=HTMLResponse)
-def portal_order_get(slug: str, request: Request, db: Session = Depends(get_db), date_str: str | None = None, empty_error: int = 0, message: str | None = None, msg_type: str = "error"):
+def portal_order_get(slug: str, request: Request, db: Session = Depends(get_db), date_str: str | None = None, empty_error: int = 0, pwd_msg: str | None = None, pwd_err: str | None = None):
     c, canon = _portal_customer_by_slug_or_alias(db, slug)
     if not c:
         raise HTTPException(404)
@@ -2517,18 +2486,17 @@ def portal_order_get(slug: str, request: Request, db: Session = Depends(get_db),
     except Exception:
         history_orders = []
 
-    safe_msg_type = "success" if (msg_type or "").strip().lower() == "success" else "error"
-    return templates.TemplateResponse("portal_order.html", {"request": request, "customer": c, "date": d, "items": cps, "qty_map": qty_map_disp, "qty_map_disp": qty_map_disp, "locked": locked, "submitted": submitted, "comment": (comment or ""), "history_orders": history_orders, "empty_error": bool(empty_error), "message": (message or "").strip(), "message_type": safe_msg_type})
+    return templates.TemplateResponse("portal_order.html", {"request": request, "customer": c, "date": d, "items": cps, "qty_map": qty_map_disp, "qty_map_disp": qty_map_disp, "locked": locked, "submitted": submitted, "comment": (comment or ""), "history_orders": history_orders, "empty_error": bool(empty_error), "message": pwd_msg, "pwd_error": pwd_err})
 
-@app.post("/p/{slug}/change-password")
-async def portal_change_password(
+@app.post("/p/{slug}/change-pin")
+def portal_change_pin(
     slug: str,
     request: Request,
     db: Session = Depends(get_db),
     current_pin: str = Form(...),
     new_pin: str = Form(...),
-    confirm_new_pin: str = Form(...),
-    date_str: str = Form(""),
+    confirm_pin: str = Form(...),
+    current_date: str = Form(""),
 ):
     c, canon = _portal_customer_by_slug_or_alias(db, slug)
     if not c:
@@ -2538,41 +2506,25 @@ async def portal_change_password(
     if get_portal_customer(request) != canon:
         raise HTTPException(status_code=401)
 
-    d_qs = f"date_str={(date_str or today_local_date().isoformat()).strip()}"
+    date_q = f"?date_str={current_date}" if (current_date or '').strip() else ''
 
-    if not verify_secret((current_pin or "").strip(), c.pin_hash):
-        return RedirectResponse(url=f"/p/{slug}/order?{d_qs}&" + urlencode({"message": "Το τρέχον PIN είναι λάθος.", "msg_type": "error"}), status_code=303)
+    cur = (current_pin or '').strip()
+    new = (new_pin or '').strip()
+    conf = (confirm_pin or '').strip()
 
-    new_clean = (new_pin or "").strip()
-    confirm_clean = (confirm_new_pin or "").strip()
+    if not verify_secret(cur, c.pin_hash):
+        return RedirectResponse(url=f"/p/{slug}/order{date_q}{'&' if date_q else '?'}pwd_err=Λάθος+τρέχον+PIN.", status_code=303)
+    if len(new) < 4:
+        return RedirectResponse(url=f"/p/{slug}/order{date_q}{'&' if date_q else '?'}pwd_err=Το+νέο+PIN+πρέπει+να+έχει+τουλάχιστον+4+χαρακτήρες.", status_code=303)
+    if new != conf:
+        return RedirectResponse(url=f"/p/{slug}/order{date_q}{'&' if date_q else '?'}pwd_err=Το+νέο+PIN+και+η+επιβεβαίωση+δεν+ταιριάζουν.", status_code=303)
+    if cur == new:
+        return RedirectResponse(url=f"/p/{slug}/order{date_q}{'&' if date_q else '?'}pwd_err=Το+νέο+PIN+πρέπει+να+είναι+διαφορετικό+από+το+τρέχον.", status_code=303)
 
-    if len(new_clean) < 4:
-        return RedirectResponse(url=f"/p/{slug}/order?{d_qs}&" + urlencode({"message": "Το νέο PIN πρέπει να έχει τουλάχιστον 4 χαρακτήρες.", "msg_type": "error"}), status_code=303)
-
-    if new_clean != confirm_clean:
-        return RedirectResponse(url=f"/p/{slug}/order?{d_qs}&" + urlencode({"message": "Η επιβεβαίωση νέου PIN δεν ταιριάζει.", "msg_type": "error"}), status_code=303)
-
-    if verify_secret(new_clean, c.pin_hash):
-        return RedirectResponse(url=f"/p/{slug}/order?{d_qs}&" + urlencode({"message": "Το νέο PIN είναι ίδιο με το τρέχον.", "msg_type": "error"}), status_code=303)
-
-    c.pin_hash = hash_secret(new_clean)
+    c.pin_hash = hash_secret(new)
     db.commit()
     audit(db, actor=f"portal:{slug}", action="portal_change_pin")
-    return RedirectResponse(url=f"/p/{slug}/order?{d_qs}&" + urlencode({"message": "Το PIN άλλαξε επιτυχώς.", "msg_type": "success"}), status_code=303)
-
-
-@app.get("/admin/customers/{customer_id}/login-as")
-def admin_customer_login_as(customer_id: int, request: Request, db: Session = Depends(get_db)):
-    admin_u = require_admin(request)
-    c = db.get(Customer, customer_id)
-    if not c or not bool(c.is_active):
-        raise HTTPException(404)
-
-    resp = RedirectResponse(url=f"/p/{c.slug}/order", status_code=302)
-    resp.set_cookie("portal_session", sign_session({"c": c.slug}), httponly=True, samesite="lax")
-    audit(db, actor=f"admin:{admin_u}", action="portal_login_as", payload=c.slug)
-    return resp
-
+    return RedirectResponse(url=f"/p/{slug}/order{date_q}{'&' if date_q else '?'}pwd_msg=Το+PIN+άλλαξε+επιτυχώς.", status_code=303)
 
 @app.post("/p/{slug}/order")
 async def portal_order_post(slug: str, request: Request, db: Session = Depends(get_db), date_str: str = Form(...), comment: str = Form("")):
