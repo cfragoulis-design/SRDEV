@@ -79,6 +79,51 @@ FROM_EMAIL = os.getenv("FROM_EMAIL", SMTP_USER)
 BREVO_API_KEY = os.getenv("BREVO_API_KEY", "")
 
 
+def send_brevo_email(to_email: str, subject: str, html_content: str) -> tuple[bool, str]:
+    target_email = (to_email or "").strip()
+    if not target_email:
+        return False, "missing_to"
+    if not BREVO_API_KEY:
+        print("BREVO ERROR: Missing BREVO_API_KEY")
+        return False, "missing_api_key"
+
+    try:
+        payload = {
+            "sender": {
+                "email": FROM_EMAIL,
+                "name": "Sklavounos Meat"
+            },
+            "to": [
+                {"email": target_email}
+            ],
+            "subject": subject,
+            "htmlContent": html_content,
+        }
+
+        headers = {
+            "accept": "application/json",
+            "api-key": BREVO_API_KEY,
+            "content-type": "application/json",
+        }
+
+        response = requests.post(
+            "https://api.brevo.com/v3/smtp/email",
+            json=payload,
+            headers=headers,
+            timeout=20,
+        )
+
+        print("BREVO STATUS:", response.status_code)
+        print("BREVO RESPONSE:", response.text)
+
+        if response.status_code in (200, 201):
+            return True, "ok"
+        return False, f"status_{response.status_code}"
+    except Exception as e:
+        print("EMAIL ERROR:", repr(e))
+        return False, repr(e)
+
+
 def get_cutoff_time() -> tuple[dtime, str]:
     s = (ORDER_CUTOFF_HHMM or "23:59").strip()
     try:
@@ -1921,48 +1966,84 @@ def admin_customers_send_test_email(customer_id: int, request: Request, db: Sess
     if not target_email:
         return RedirectResponse(url="/admin/customers?msg=no_email", status_code=302)
 
-    if not BREVO_API_KEY:
-        print("BREVO ERROR: Missing BREVO_API_KEY")
-        return RedirectResponse(url="/admin/customers?msg=error", status_code=302)
+    ok, _reason = send_brevo_email(
+        to_email=target_email,
+        subject="Test email from Sklavounos Restaurants",
+        html_content="<p>Αυτό είναι δοκιμαστικό email από την πλατφόρμα Sklavounos Restaurants.</p>",
+    )
+    if ok:
+        audit(db, actor=f"admin:{admin_u}", action="customer_send_test_email", payload=f"{c.slug}:{target_email}")
+        return RedirectResponse(url="/admin/customers?msg=sent", status_code=302)
 
-    try:
-        payload = {
-            "sender": {
-                "email": FROM_EMAIL,
-                "name": "Sklavounos Meat"
-            },
-            "to": [
-                {"email": target_email}
-            ],
-            "subject": "Test email from Sklavounos Restaurants",
-            "htmlContent": "<p>Αυτό είναι δοκιμαστικό email από την πλατφόρμα Sklavounos Restaurants.</p>"
-        }
+    return RedirectResponse(url="/admin/customers?msg=error", status_code=302)
 
-        headers = {
-            "accept": "application/json",
-            "api-key": BREVO_API_KEY,
-            "content-type": "application/json"
-        }
+@app.get("/admin/customers/{customer_id}/send-message", response_class=HTMLResponse)
+def admin_customers_send_message_form(customer_id: int, request: Request, db: Session = Depends(get_db)):
+    admin_u = require_admin(request)
+    c = db.get(Customer, customer_id)
+    if not c:
+        raise HTTPException(404)
 
-        response = requests.post(
-            "https://api.brevo.com/v3/smtp/email",
-            json=payload,
-            headers=headers,
-            timeout=20
-        )
+    msg = (request.query_params.get("msg") or "").strip()
+    return templates.TemplateResponse(
+        "admin_customer_send_message.html",
+        {
+            "request": request,
+            "admin_user": admin_u,
+            "customer": c,
+            "msg": msg,
+        },
+    )
 
-        print("BREVO STATUS:", response.status_code)
-        print("BREVO RESPONSE:", response.text)
+@app.post("/admin/customers/{customer_id}/send-message")
+def admin_customers_send_message(
+    customer_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    subject: str = Form(""),
+    message: str = Form(""),
+):
+    admin_u = require_admin(request)
+    c = db.get(Customer, customer_id)
+    if not c:
+        raise HTTPException(404)
 
-        if response.status_code in (200, 201):
-            audit(db, actor=f"admin:{admin_u}", action="customer_send_test_email", payload=f"{c.slug}:{target_email}")
-            return RedirectResponse(url="/admin/customers?msg=sent", status_code=302)
+    target_email = (getattr(c, "email", "") or "").strip()
+    if not target_email:
+        return RedirectResponse(url=f"/admin/customers/{customer_id}/send-message?msg=no_email", status_code=302)
 
-        return RedirectResponse(url="/admin/customers?msg=error", status_code=302)
+    subject_clean = (subject or "").strip()
+    message_clean = (message or "").strip()
+    if not subject_clean or not message_clean:
+        return RedirectResponse(url=f"/admin/customers/{customer_id}/send-message?msg=missing", status_code=302)
 
-    except Exception as e:
-        print("EMAIL ERROR:", repr(e))
-        return RedirectResponse(url="/admin/customers?msg=error", status_code=302)
+    safe_message = (
+        message_clean
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+        .replace("\n", "<br>")
+    )
+    html_content = f"""
+    <div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#111;">
+      <p>Καλησπέρα,</p>
+      <div>{safe_message}</div>
+      <p style="margin-top:24px;">Sklavounos Restaurants</p>
+    </div>
+    """.strip()
+
+    ok, _reason = send_brevo_email(
+        to_email=target_email,
+        subject=subject_clean,
+        html_content=html_content,
+    )
+    if ok:
+        audit(db, actor=f"admin:{admin_u}", action="customer_send_message", payload=f"{c.slug}:{target_email}:{subject_clean}")
+        return RedirectResponse(url="/admin/customers?msg=message_sent", status_code=302)
+
+    return RedirectResponse(url=f"/admin/customers/{customer_id}/send-message?msg=error", status_code=302)
 
 @app.post("/admin/customers/create")
 def admin_customers_create(request: Request, afm: str = Form(""), db: Session = Depends(get_db), name: str = Form(""), pin: str = Form(...)):
@@ -2590,34 +2671,6 @@ def portal_change_pin(
     db.commit()
     audit(db, actor=f"portal:{slug}", action="portal_change_pin")
     return RedirectResponse(url=f"/p/{slug}/order{date_q}{'&' if date_q else '?'}pwd_msg=Το+PIN+άλλαξε+επιτυχώς.", status_code=303)
-
-@app.post("/p/{slug}/save-contact")
-async def portal_save_contact(slug: str, request: Request, db: Session = Depends(get_db)):
-    c, canon = _portal_customer_by_slug_or_alias(db, slug)
-    if not c:
-        raise HTTPException(404)
-    if canon != slug:
-        return JSONResponse({"ok": False, "redirect": f"/p/{canon}/order"}, status_code=200)
-    if get_portal_customer(request) != canon:
-        raise HTTPException(status_code=401)
-
-    data = await request.json()
-    phone = str(data.get("phone", "") or "").strip()
-    email = str(data.get("email", "") or "").strip()
-
-    changed = False
-    if (c.phone or "") != phone:
-        c.phone = phone
-        changed = True
-    if (c.email or "") != email:
-        c.email = email
-        changed = True
-
-    if changed:
-        db.commit()
-        audit(db, actor=f"portal:{slug}", action="portal_contact_update")
-
-    return JSONResponse({"ok": True, "saved": changed})
 
 @app.post("/p/{slug}/order")
 async def portal_order_post(slug: str, request: Request, db: Session = Depends(get_db), date_str: str = Form(...), comment: str = Form("")):
