@@ -231,22 +231,36 @@ td:last-child {
 
 <div class="bg-slate-900/40 border border-slate-800 rounded-2xl p-4">
   <h3 class="text-sm font-semibold text-slate-200 mb-3">Αλλαγή PIN</h3>
-  <form method="post" action="/p/{{ customer.slug }}/change-pin" class="grid grid-cols-1 md:grid-cols-4 gap-3">
+  <form method="post" action="/p/{{ customer.slug }}/change-pin" class="space-y-3">
     <input type="hidden" name="current_date" value="{{ date.isoformat() }}">
-    <div>
-      <label class="text-sm text-slate-300">Τρέχον PIN</label>
-      <input type="password" name="current_pin" class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2" required {% if locked or submitted %}{% endif %}>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 max-w-4xl">
+      <div>
+        <label class="text-sm text-slate-300">Τρέχον PIN</label>
+        <input type="password" name="current_pin"
+               class="mt-1 w-full max-w-xs bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm"
+               required>
+      </div>
+
+      <div>
+        <label class="text-sm text-slate-300">Νέο PIN</label>
+        <input type="password" name="new_pin"
+               class="mt-1 w-full max-w-xs bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm"
+               required>
+      </div>
+
+      <div>
+        <label class="text-sm text-slate-300">Επιβεβαίωση</label>
+        <input type="password" name="confirm_pin"
+               class="mt-1 w-full max-w-xs bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm"
+               required>
+      </div>
     </div>
-    <div>
-      <label class="text-sm text-slate-300">Νέο PIN</label>
-      <input type="password" name="new_pin" class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2" required>
-    </div>
-    <div>
-      <label class="text-sm text-slate-300">Επιβεβαίωση</label>
-      <input type="password" name="confirm_pin" class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2" required>
-    </div>
-    <div class="flex items-end">
-      <button class="w-full bg-slate-900 border border-slate-700 hover:bg-slate-800 rounded-xl px-3 py-2">Αλλαγή PIN</button>
+
+    <div class="max-w-4xl flex justify-start md:justify-end">
+      <button class="bg-slate-900 border border-slate-700 hover:bg-slate-800 rounded-lg px-4 py-2 text-sm">
+        Αλλαγή PIN
+      </button>
     </div>
   </form>
 </div>
