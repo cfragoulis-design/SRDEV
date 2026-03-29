@@ -67,11 +67,21 @@ td:last-child {
   <form id="portal-date-form" method="get" action="/p/{{ customer.slug }}/order" class="flex items-center gap-2">
     <label class="text-sm font-semibold text-white flex items-center gap-2">📅 Ημερομηνία Παράδοσης</label>
     {# Date must ALWAYS be selectable so the user can place a future order, even if today's order is locked/submitted #}
-    <input id="portal-date" type="date" name="date_str" value="{{ date.isoformat() }}" class="bg-slate-950 border border-slate-700 text-white rounded-xl px-3 py-2 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition">
+    <input id="portal-date" type="date" name="date_str" value="{{ selected_date or "" }}" min="{{ date.isoformat() }}" class="bg-slate-950 border border-slate-700 text-white rounded-xl px-3 py-2 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition">
     <button type="submit" class="bg-slate-900 border border-slate-800 hover:bg-slate-800 rounded-xl px-3 py-2">Go</button>
   </form>
 </div>
 
+
+{% if date_required %}
+<div class="mb-4 bg-rose-500/10 border border-rose-400/20 text-rose-200 rounded-xl px-4 py-3">
+  Παρακαλώ επίλεξε υποχρεωτικά ημερομηνία παράδοσης πριν την υποβολή της παραγγελίας.
+</div>
+{% endif %}
+
+<div class="mb-4 bg-sky-500/10 border border-sky-400/20 text-sky-100 rounded-xl px-4 py-3">
+  Η επιλογή ημερομηνίας παράδοσης είναι υποχρεωτική. Η παραγγελία δεν υποβάλλεται χωρίς ημερομηνία.
+</div>
 {% if empty_error %}
 <div class="mb-4 bg-amber-500/10 border border-amber-400/20 text-amber-200 rounded-xl px-4 py-3">
   Δεν μπορείς να κάνεις υποβολή με άδεια παραγγελία. Βάλε ποσότητα σε τουλάχιστον 1 προϊόν (ή γράψε σχόλιο) και ξαναπάτα Υποβολή.
@@ -148,7 +158,7 @@ td:last-child {
 {% endif %}
 
 <form id="order-form" method="post" action="/p/{{ customer.slug }}/order" class="space-y-4">
-  <input type="hidden" name="date_str" value="{{ date.isoformat() }}">
+  <input id="order-date-hidden" type="hidden" name="date_str" value="{{ selected_date or "" }}">
 
 
   <div class="bg-slate-900/40 border border-slate-800 rounded-2xl p-4">
@@ -216,7 +226,7 @@ td:last-child {
       Clear
     </button>
 
-    <button class="bg-emerald-600 hover:bg-emerald-500 rounded-xl px-5 py-2 font-medium" {% if locked or submitted %}disabled{% endif %}>
+    <button id="submit-order-btn" data-hard-disabled="{% if locked or submitted %}1{% else %}0{% endif %}" class="bg-emerald-600 hover:bg-emerald-500 rounded-xl px-5 py-2 font-medium disabled:opacity-50 disabled:cursor-not-allowed" {% if locked or submitted or not selected_date %}disabled{% endif %}>
       Υποβολή
     </button>
   </div>
@@ -286,18 +296,43 @@ td:last-child {
   // Use a safe GET redirect to avoid partial POSTs and never block future dates.
   const form = document.getElementById('portal-date-form');
   const dateEl = document.getElementById('portal-date');
+  const hiddenDateEl = document.getElementById('order-date-hidden');
+  const submitBtn = document.getElementById('submit-order-btn');
+  const orderForm = document.getElementById('order-form');
   if (!form || !dateEl) return;
+
+  function syncDateState() {
+    const val = (dateEl.value || '').trim();
+    if (hiddenDateEl) hiddenDateEl.value = val;
+    if (submitBtn && submitBtn.getAttribute('data-hard-disabled') !== '1') submitBtn.disabled = !val;
+  }
+
+  syncDateState();
+
   dateEl.addEventListener('change', function(){
+    syncDateState();
     try {
       if (!dateEl.value) return;
       const url = new URL(form.getAttribute('action') || window.location.pathname, window.location.origin);
       url.searchParams.set('date_str', dateEl.value);
       window.location.href = url.toString();
     } catch (e) {
-      // Fallback: submit the GET form
       try { form.submit(); } catch (e2) {}
     }
   });
+
+  if (orderForm) {
+    orderForm.addEventListener('submit', function(e){
+      const val = (dateEl.value || '').trim();
+      if (!val) {
+        e.preventDefault();
+        alert('Παρακαλώ επίλεξε ημερομηνία παράδοσης.');
+        try { dateEl.focus(); } catch (err) {}
+        return false;
+      }
+      if (hiddenDateEl) hiddenDateEl.value = val;
+    });
+  }
 })();
 </script>
 
