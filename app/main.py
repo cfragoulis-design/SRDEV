@@ -1459,18 +1459,10 @@ def admin_unlock_order(customer_id: int, request: Request, date_str: str = Form(
     admin = get_admin_username(request)
     if not admin:
         return RedirectResponse(url="/login", status_code=302)
-    date_str = (date_str or "").strip()
-    if not date_str:
-        return RedirectResponse(url=f"/p/{slug}/order?date_required=1", status_code=303)
-
     try:
         d = date.fromisoformat(date_str)
     except ValueError:
-        return RedirectResponse(url=f"/p/{slug}/order?date_required=1", status_code=303)
-
-    today = today_local_date()
-    if d < today:
-        return RedirectResponse(url=f"/p/{slug}/order?date_required=1", status_code=303)
+        d = tomorrow_local_date()
     o = _get_order_for_customer_date(db, customer_id, d)
     if not o:
         return RedirectResponse(url=f"/admin/dashboard?date_str={d.isoformat()}", status_code=302)
@@ -1500,18 +1492,10 @@ def admin_override_unlock(customer_id: int, request: Request, date_str: str = Fo
         except ValueError:
             d = tomorrow_local_date()
         return RedirectResponse(url=f"/admin/dashboard?date_str={d.isoformat()}", status_code=302)
-    date_str = (date_str or "").strip()
-    if not date_str:
-        return RedirectResponse(url=f"/p/{slug}/order?date_required=1", status_code=303)
-
     try:
         d = date.fromisoformat(date_str)
     except ValueError:
-        return RedirectResponse(url=f"/p/{slug}/order?date_required=1", status_code=303)
-
-    today = today_local_date()
-    if d < today:
-        return RedirectResponse(url=f"/p/{slug}/order?date_required=1", status_code=303)
+        d = tomorrow_local_date()
     o = _get_order_for_customer_date(db, customer_id, d)
     if not o:
         return RedirectResponse(url=f"/admin/dashboard?date_str={d.isoformat()}", status_code=302)
@@ -1846,18 +1830,10 @@ async def admin_order_full_post(customer_id: int, request: Request, db: Session 
     action = (form.get("action") or "").strip()
 
     date_str = str(form.get("date_str") or "")
-    date_str = (date_str or "").strip()
-    if not date_str:
-        return RedirectResponse(url=f"/p/{slug}/order?date_required=1", status_code=303)
-
     try:
         d = date.fromisoformat(date_str)
     except ValueError:
-        return RedirectResponse(url=f"/p/{slug}/order?date_required=1", status_code=303)
-
-    today = today_local_date()
-    if d < today:
-        return RedirectResponse(url=f"/p/{slug}/order?date_required=1", status_code=303)
+        d = tomorrow_local_date()
 
     o = _get_order_for_customer_date(db, customer_id, d)
     if not o:
@@ -2442,14 +2418,7 @@ def portal_pin_post(slug: str, request: Request, db: Session = Depends(get_db), 
     return resp
 
 @app.get("/p/{slug}/order", response_class=HTMLResponse)
-def portal_order_get(
-    slug: str,
-    request: Request,
-    db: Session = Depends(get_db),
-    date_str: str | None = None,
-    empty_error: int = 0,
-    date_required: int = 0,
-):
+def portal_order_get(slug: str, request: Request, db: Session = Depends(get_db), date_str: str | None = None, empty_error: int = 0, message: str | None = None, msg_type: str = "error"):
     c, canon = _portal_customer_by_slug_or_alias(db, slug)
     if not c:
         raise HTTPException(404)
@@ -2459,17 +2428,17 @@ def portal_order_get(
     if get_portal_customer(request) != canon:
         return RedirectResponse(url=f"/p/{slug}", status_code=302)
 
-    today = today_local_date()
-    selected_date_raw = ""
-    d = today
+    d = today_local_date()
     if date_str:
         try:
-            parsed = date.fromisoformat(date_str)
-            if parsed >= today:
-                d = parsed
-                selected_date_raw = parsed.isoformat()
+            d = date.fromisoformat(date_str)
         except ValueError:
             pass
+
+    # block past dates
+    today = today_local_date()
+    if d < today:
+        d = today
 
     cps = db.execute(
         select(CustomerProduct, Product, Unit)
@@ -2479,18 +2448,12 @@ def portal_order_get(
         .order_by(Product.name.asc())
     ).all()
 
-    o = None
-    locked = False
-    submitted = False
-    comment = ""
+    o = db.execute(select(Order).where(Order.customer_id == c.id, Order.order_date == d)).scalar_one_or_none()
+    locked = bool(o and (o.is_locked or o.locked_at is not None))
+    submitted = bool(o and getattr(o, "submitted_at", None) is not None)
+    comment = o.customer_comment if o else ""
 
     qty_map = {}
-    if selected_date_raw:
-        o = db.execute(select(Order).where(Order.customer_id == c.id, Order.order_date == d)).scalar_one_or_none()
-        locked = bool(o and (o.is_locked or o.locked_at is not None))
-        submitted = bool(o and getattr(o, "submitted_at", None) is not None)
-        comment = o.customer_comment if o else ""
-
     if o:
         lines = db.execute(select(OrderLine).where(OrderLine.order_id == o.id)).scalars().all()
         for ln in lines:
@@ -2504,7 +2467,7 @@ def portal_order_get(
         hos = (
             db.execute(
                 select(Order)
-                .where(Order.customer_id == c.id)
+                .where(Order.customer_id == c.id, Order.order_date != d)
                 .order_by(Order.order_date.desc())
                 .limit(10)
             )
@@ -2554,27 +2517,19 @@ def portal_order_get(
     except Exception:
         history_orders = []
 
-    return templates.TemplateResponse(
-        "portal_order.html",
-        {
-            "request": request,
-            "customer": c,
-            "date": d,
-            "selected_date": selected_date_raw,
-            "items": cps,
-            "qty_map": qty_map_disp,
-            "qty_map_disp": qty_map_disp,
-            "locked": locked,
-            "submitted": submitted,
-            "comment": (comment or ""),
-            "history_orders": history_orders,
-            "empty_error": bool(empty_error),
-            "date_required": bool(date_required),
-        },
-    )
+    safe_msg_type = "success" if (msg_type or "").strip().lower() == "success" else "error"
+    return templates.TemplateResponse("portal_order.html", {"request": request, "customer": c, "date": d, "items": cps, "qty_map": qty_map_disp, "qty_map_disp": qty_map_disp, "locked": locked, "submitted": submitted, "comment": (comment or ""), "history_orders": history_orders, "empty_error": bool(empty_error), "message": (message or "").strip(), "message_type": safe_msg_type})
 
-@app.post("/p/{slug}/order")
-async def portal_order_post(slug: str, request: Request, db: Session = Depends(get_db), date_str: str = Form(""), comment: str = Form("")):
+@app.post("/p/{slug}/change-password")
+async def portal_change_password(
+    slug: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_pin: str = Form(...),
+    new_pin: str = Form(...),
+    confirm_new_pin: str = Form(...),
+    date_str: str = Form(""),
+):
     c, canon = _portal_customer_by_slug_or_alias(db, slug)
     if not c:
         raise HTTPException(404)
@@ -2583,18 +2538,56 @@ async def portal_order_post(slug: str, request: Request, db: Session = Depends(g
     if get_portal_customer(request) != canon:
         raise HTTPException(status_code=401)
 
-    date_str = (date_str or "").strip()
-    if not date_str:
-        return RedirectResponse(url=f"/p/{slug}/order?date_required=1", status_code=303)
+    d_qs = f"date_str={(date_str or today_local_date().isoformat()).strip()}"
+
+    if not verify_secret((current_pin or "").strip(), c.pin_hash):
+        return RedirectResponse(url=f"/p/{slug}/order?{d_qs}&" + urlencode({"message": "Το τρέχον PIN είναι λάθος.", "msg_type": "error"}), status_code=303)
+
+    new_clean = (new_pin or "").strip()
+    confirm_clean = (confirm_new_pin or "").strip()
+
+    if len(new_clean) < 4:
+        return RedirectResponse(url=f"/p/{slug}/order?{d_qs}&" + urlencode({"message": "Το νέο PIN πρέπει να έχει τουλάχιστον 4 χαρακτήρες.", "msg_type": "error"}), status_code=303)
+
+    if new_clean != confirm_clean:
+        return RedirectResponse(url=f"/p/{slug}/order?{d_qs}&" + urlencode({"message": "Η επιβεβαίωση νέου PIN δεν ταιριάζει.", "msg_type": "error"}), status_code=303)
+
+    if verify_secret(new_clean, c.pin_hash):
+        return RedirectResponse(url=f"/p/{slug}/order?{d_qs}&" + urlencode({"message": "Το νέο PIN είναι ίδιο με το τρέχον.", "msg_type": "error"}), status_code=303)
+
+    c.pin_hash = hash_secret(new_clean)
+    db.commit()
+    audit(db, actor=f"portal:{slug}", action="portal_change_pin")
+    return RedirectResponse(url=f"/p/{slug}/order?{d_qs}&" + urlencode({"message": "Το PIN άλλαξε επιτυχώς.", "msg_type": "success"}), status_code=303)
+
+
+@app.get("/admin/customers/{customer_id}/login-as")
+def admin_customer_login_as(customer_id: int, request: Request, db: Session = Depends(get_db)):
+    admin_u = require_admin(request)
+    c = db.get(Customer, customer_id)
+    if not c or not bool(c.is_active):
+        raise HTTPException(404)
+
+    resp = RedirectResponse(url=f"/p/{c.slug}/order", status_code=302)
+    resp.set_cookie("portal_session", sign_session({"c": c.slug}), httponly=True, samesite="lax")
+    audit(db, actor=f"admin:{admin_u}", action="portal_login_as", payload=c.slug)
+    return resp
+
+
+@app.post("/p/{slug}/order")
+async def portal_order_post(slug: str, request: Request, db: Session = Depends(get_db), date_str: str = Form(...), comment: str = Form("")):
+    c, canon = _portal_customer_by_slug_or_alias(db, slug)
+    if not c:
+        raise HTTPException(404)
+    if canon != slug:
+        return RedirectResponse(url=f"/p/{canon}/order", status_code=302)
+    if get_portal_customer(request) != canon:
+        raise HTTPException(status_code=401)
 
     try:
         d = date.fromisoformat(date_str)
     except ValueError:
-        return RedirectResponse(url=f"/p/{slug}/order?date_required=1", status_code=303)
-
-    today = today_local_date()
-    if d < today:
-        return RedirectResponse(url=f"/p/{slug}/order?date_required=1", status_code=303)
+        d = tomorrow_local_date()
 
     o = db.execute(select(Order).where(Order.customer_id == c.id, Order.order_date == d)).scalar_one_or_none()
     if o and (o.is_locked or o.locked_at is not None):
