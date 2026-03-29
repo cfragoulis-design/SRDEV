@@ -2446,7 +2446,7 @@ def update_contact(
     db.commit()
 
     qs = f"?date_str={date_str}&msg=contact_saved" if (date_str or "").strip() else "?msg=contact_saved"
-    return RedirectResponse(url=f"/p/{slug}/order{qs}", status_code=302)
+    return RedirectResponse(url=f"/p/{slug}/order{qs}", status_code=302)02)
 
 @app.get("/p/{slug}", response_class=HTMLResponse)
 def portal_pin_get(slug: str, request: Request, db: Session = Depends(get_db)):
