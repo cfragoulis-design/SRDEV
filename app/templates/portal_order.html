@@ -58,12 +58,17 @@ td:last-child {
     padding-left: 6px;
     padding-right: 6px;
   }
+  #deliveryDateModalInput {
+  color-scheme: dark;
 }
 }
+}
+  
 
 #deliveryDateModalInput {
   background: #020617;
   color: #ffffff;
+  cursor: pointer;
 }
 
 .flatpickr-calendar {
@@ -111,7 +116,6 @@ span.flatpickr-weekday,
   border-color: #1e293b;
 }
 
-
 </style>
 <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-4">
   <div>
@@ -151,8 +155,14 @@ span.flatpickr-weekday,
 </script>
 
 {% if message %}
-  <div class="mb-4 bg-rose-900/30 border border-rose-800 text-rose-200 rounded-2xl px-4 py-3">
+  <div class="mb-4 bg-emerald-900/30 border border-emerald-800 text-emerald-200 rounded-2xl px-4 py-3">
     {{ message }}
+  </div>
+{% endif %}
+
+{% if pwd_error %}
+  <div class="mb-4 bg-rose-900/30 border border-rose-800 text-rose-200 rounded-2xl px-4 py-3">
+    {{ pwd_error }}
   </div>
 {% endif %}
 
@@ -275,6 +285,43 @@ span.flatpickr-weekday,
     </button>
   </div>
 </form>
+
+
+<div class="bg-slate-900/40 border border-slate-800 rounded-2xl p-4">
+  <h3 class="text-sm font-semibold text-slate-200 mb-3">Αλλαγή PIN</h3>
+  <form method="post" action="/p/{{ customer.slug }}/change-pin" class="space-y-3">
+    <input type="hidden" name="current_date" value="{{ date.isoformat() }}">
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 max-w-4xl">
+      <div>
+        <label class="text-sm text-slate-300">Τρέχον PIN</label>
+        <input type="password" name="current_pin"
+               class="mt-1 w-full max-w-xs bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm"
+               required>
+      </div>
+
+      <div>
+        <label class="text-sm text-slate-300">Νέο PIN</label>
+        <input type="password" name="new_pin"
+               class="mt-1 w-full max-w-xs bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm"
+               required>
+      </div>
+
+      <div>
+        <label class="text-sm text-slate-300">Επιβεβαίωση</label>
+        <input type="password" name="confirm_pin"
+               class="mt-1 w-full max-w-xs bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm"
+               required>
+      </div>
+    </div>
+
+    <div class="max-w-4xl flex justify-start md:justify-end">
+      <button class="bg-slate-900 border border-slate-700 hover:bg-slate-800 rounded-lg px-4 py-2 text-sm">
+        Αλλαγή PIN
+      </button>
+    </div>
+  </form>
+</div>
 
 {% if history_orders and history_orders|length > 0 %}
   <div class="mt-8">
@@ -521,7 +568,7 @@ span.flatpickr-weekday,
     </p>
 
     <input id="deliveryDateModalInput" type="text" readonly placeholder="Επιλέξτε ημερομηνία"
-           class="mt-4 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-white cursor-pointer">
+       class="mt-4 w-full rounded-xl border border-slate-600 bg-slate-950 px-3 py-2 text-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none">
 
     <div id="deliveryDateModalError" class="mt-2 hidden text-sm text-rose-300">
       Παρακαλώ επιλέξτε ημερομηνία.
@@ -579,9 +626,7 @@ span.flatpickr-weekday,
 
     setTimeout(function () {
       modalInput.focus();
-      if (picker) {
-        picker.open();
-      }
+      if (picker) picker.open();
     }, 120);
   }
 
