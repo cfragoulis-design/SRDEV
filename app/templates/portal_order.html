@@ -97,8 +97,14 @@ td:last-child {
 </script>
 
 {% if message %}
-  <div class="mb-4 {% if message_type == "success" %}bg-emerald-900/30 border border-emerald-800 text-emerald-200{% else %}bg-rose-900/30 border border-rose-800 text-rose-200{% endif %} rounded-2xl px-4 py-3">
+  <div class="mb-4 bg-emerald-900/30 border border-emerald-800 text-emerald-200 rounded-2xl px-4 py-3">
     {{ message }}
+  </div>
+{% endif %}
+
+{% if pwd_error %}
+  <div class="mb-4 bg-rose-900/30 border border-rose-800 text-rose-200 rounded-2xl px-4 py-3">
+    {{ pwd_error }}
   </div>
 {% endif %}
 
@@ -222,29 +228,25 @@ td:last-child {
   </div>
 </form>
 
+
 <div class="bg-slate-900/40 border border-slate-800 rounded-2xl p-4">
-  <div class="flex items-center justify-between gap-3 mb-3">
-    <div>
-      <div class="text-sm text-slate-300 font-medium">Αλλαγή PIN</div>
-      <div class="text-xs text-slate-500">Μπορείτε να αλλάξετε το PIN πρόσβασης στο portal.</div>
-    </div>
-  </div>
-  <form method="post" action="/p/{{ customer.slug }}/change-password" class="grid grid-cols-1 md:grid-cols-4 gap-3">
-    <input type="hidden" name="date_str" value="{{ date.isoformat() }}">
+  <h3 class="text-sm font-semibold text-slate-200 mb-3">Αλλαγή PIN</h3>
+  <form method="post" action="/p/{{ customer.slug }}/change-pin" class="grid grid-cols-1 md:grid-cols-4 gap-3">
+    <input type="hidden" name="current_date" value="{{ date.isoformat() }}">
     <div>
       <label class="text-sm text-slate-300">Τρέχον PIN</label>
-      <input type="password" name="current_pin" class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2" required>
+      <input type="password" name="current_pin" class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2" required {% if locked or submitted %}{% endif %}>
     </div>
     <div>
       <label class="text-sm text-slate-300">Νέο PIN</label>
       <input type="password" name="new_pin" class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2" required>
     </div>
     <div>
-      <label class="text-sm text-slate-300">Επιβεβαίωση νέου PIN</label>
-      <input type="password" name="confirm_new_pin" class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2" required>
+      <label class="text-sm text-slate-300">Επιβεβαίωση</label>
+      <input type="password" name="confirm_pin" class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2" required>
     </div>
     <div class="flex items-end">
-      <button class="w-full bg-slate-900 border border-slate-700 hover:bg-slate-800 rounded-xl px-3 py-2 text-sm font-medium">Αλλαγή PIN</button>
+      <button class="w-full bg-slate-900 border border-slate-700 hover:bg-slate-800 rounded-xl px-3 py-2">Αλλαγή PIN</button>
     </div>
   </form>
 </div>
@@ -480,6 +482,83 @@ td:last-child {
   }
 
   searchInput.addEventListener('input', applySearch);
+})();
+</script>
+
+
+<!-- Forced delivery date modal (added safely; does not alter existing portal layout) -->
+<div id="deliveryDateModal"
+     class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 px-4">
+  <div class="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl">
+    <h2 class="text-lg font-semibold text-white">Επιλέξτε ημερομηνία παράδοσης</h2>
+    <p class="mt-2 text-sm text-slate-300">
+      Για να συνεχίσετε με την παραγγελία σας, επιλέξτε πρώτα ημερομηνία παράδοσης.
+    </p>
+
+    <input id="deliveryDateModalInput" type="date"
+           class="mt-4 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-white">
+
+    <div id="deliveryDateModalError" class="mt-2 hidden text-sm text-rose-300">
+      Παρακαλώ επιλέξτε ημερομηνία.
+    </div>
+
+    <button id="deliveryDateModalConfirm" type="button"
+            class="mt-4 w-full rounded-xl bg-emerald-600 px-4 py-2 font-medium text-white hover:bg-emerald-500">
+      Συνέχεια
+    </button>
+  </div>
+</div>
+
+<script>
+(function () {
+  if (window.__srForcedDeliveryDateInit) return;
+  window.__srForcedDeliveryDateInit = true;
+
+  const dateForm = document.getElementById('portal-date-form');
+  const visibleDateInput = document.getElementById('portal-date');
+  const hiddenDateInput = document.querySelector('#order-form input[name="date_str"]');
+
+  const modal = document.getElementById('deliveryDateModal');
+  const modalInput = document.getElementById('deliveryDateModalInput');
+  const modalConfirm = document.getElementById('deliveryDateModalConfirm');
+  const modalError = document.getElementById('deliveryDateModalError');
+
+  if (!dateForm || !visibleDateInput || !modal || !modalInput || !modalConfirm) return;
+
+  function goToDate(val) {
+    if (!val) return;
+    const url = new URL(dateForm.getAttribute('action') || window.location.pathname, window.location.origin);
+    url.searchParams.set('date_str', val);
+    window.location.href = url.toString();
+  }
+
+  const url = new URL(window.location.href);
+  const hasExplicitDate = !!(url.searchParams.get('date_str') || '').trim();
+
+  if (!hasExplicitDate) {
+    visibleDateInput.value = '';
+    if (hiddenDateInput) hiddenDateInput.value = '';
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+
+    setTimeout(function () {
+      modalInput.focus();
+      if (typeof modalInput.showPicker === 'function') {
+        try { modalInput.showPicker(); } catch (e) {}
+      }
+    }, 120);
+  }
+
+  modalConfirm.addEventListener('click', function () {
+    const val = (modalInput.value || '').trim();
+    if (!val) {
+      modalError.classList.remove('hidden');
+      return;
+    }
+    modalError.classList.add('hidden');
+    goToDate(val);
+  });
 })();
 </script>
 
