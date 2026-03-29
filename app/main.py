@@ -79,51 +79,6 @@ FROM_EMAIL = os.getenv("FROM_EMAIL", SMTP_USER)
 BREVO_API_KEY = os.getenv("BREVO_API_KEY", "")
 
 
-def send_brevo_email(to_email: str, subject: str, html_content: str) -> tuple[bool, str]:
-    target_email = (to_email or "").strip()
-    if not target_email:
-        return False, "missing_to"
-    if not BREVO_API_KEY:
-        print("BREVO ERROR: Missing BREVO_API_KEY")
-        return False, "missing_api_key"
-
-    try:
-        payload = {
-            "sender": {
-                "email": FROM_EMAIL,
-                "name": "Sklavounos Meat"
-            },
-            "to": [
-                {"email": target_email}
-            ],
-            "subject": subject,
-            "htmlContent": html_content,
-        }
-
-        headers = {
-            "accept": "application/json",
-            "api-key": BREVO_API_KEY,
-            "content-type": "application/json",
-        }
-
-        response = requests.post(
-            "https://api.brevo.com/v3/smtp/email",
-            json=payload,
-            headers=headers,
-            timeout=20,
-        )
-
-        print("BREVO STATUS:", response.status_code)
-        print("BREVO RESPONSE:", response.text)
-
-        if response.status_code in (200, 201):
-            return True, "ok"
-        return False, f"status_{response.status_code}"
-    except Exception as e:
-        print("EMAIL ERROR:", repr(e))
-        return False, repr(e)
-
-
 def get_cutoff_time() -> tuple[dtime, str]:
     s = (ORDER_CUTOFF_HHMM or "23:59").strip()
     try:
@@ -1937,6 +1892,37 @@ async def admin_order_full_post(customer_id: int, request: Request, db: Session 
 
     return RedirectResponse(url=f"/admin/orders/{customer_id}/full?date_str={d.isoformat()}", status_code=303)
 
+
+
+def _send_brevo_email(target_email: str, subject: str, html_content: str):
+    if not BREVO_API_KEY:
+        return False, "missing_api_key"
+
+    payload = {
+        "sender": {
+            "email": FROM_EMAIL,
+            "name": "Sklavounos Meat"
+        },
+        "to": [{"email": target_email}],
+        "subject": subject,
+        "htmlContent": html_content,
+    }
+
+    headers = {
+        "accept": "application/json",
+        "api-key": BREVO_API_KEY,
+        "content-type": "application/json",
+    }
+
+    response = requests.post(
+        "https://api.brevo.com/v3/smtp/email",
+        json=payload,
+        headers=headers,
+        timeout=20,
+    )
+    return response.status_code in (200, 201), response.text
+
+
 @app.get("/admin/customers", response_class=HTMLResponse)
 def admin_customers(request: Request, db: Session = Depends(get_db)):
     admin_u = require_admin(request)
@@ -1966,25 +1952,30 @@ def admin_customers_send_test_email(customer_id: int, request: Request, db: Sess
     if not target_email:
         return RedirectResponse(url="/admin/customers?msg=no_email", status_code=302)
 
-    ok, _reason = send_brevo_email(
-        to_email=target_email,
-        subject="Test email from Sklavounos Restaurants",
-        html_content="<p>Αυτό είναι δοκιμαστικό email από την πλατφόρμα Sklavounos Restaurants.</p>",
-    )
-    if ok:
-        audit(db, actor=f"admin:{admin_u}", action="customer_send_test_email", payload=f"{c.slug}:{target_email}")
-        return RedirectResponse(url="/admin/customers?msg=sent", status_code=302)
+    try:
+        ok, info = _send_brevo_email(
+            target_email=target_email,
+            subject="Test email from Sklavounos Restaurants",
+            html_content="<p>Αυτό είναι δοκιμαστικό email από την πλατφόρμα Sklavounos Restaurants.</p>",
+        )
+        print("BREVO RESPONSE:", info)
+        if ok:
+            audit(db, actor=f"admin:{admin_u}", action="customer_send_test_email", payload=f"{c.slug}:{target_email}")
+            return RedirectResponse(url="/admin/customers?msg=sent", status_code=302)
+        return RedirectResponse(url="/admin/customers?msg=error", status_code=302)
+    except Exception as e:
+        print("EMAIL ERROR:", repr(e))
+        return RedirectResponse(url="/admin/customers?msg=error", status_code=302)
 
-    return RedirectResponse(url="/admin/customers?msg=error", status_code=302)
 
 @app.get("/admin/customers/{customer_id}/send-message", response_class=HTMLResponse)
-def admin_customers_send_message_form(customer_id: int, request: Request, db: Session = Depends(get_db)):
+def admin_customers_send_message_page(customer_id: int, request: Request, db: Session = Depends(get_db)):
     admin_u = require_admin(request)
     c = db.get(Customer, customer_id)
     if not c:
         raise HTTPException(404)
-
     msg = (request.query_params.get("msg") or "").strip()
+    default_subject = "Sklavounos Meat – Ενημέρωση"
     return templates.TemplateResponse(
         "admin_customer_send_message.html",
         {
@@ -1992,11 +1983,13 @@ def admin_customers_send_message_form(customer_id: int, request: Request, db: Se
             "admin_user": admin_u,
             "customer": c,
             "msg": msg,
+            "default_subject": default_subject,
         },
     )
 
+
 @app.post("/admin/customers/{customer_id}/send-message")
-def admin_customers_send_message(
+def admin_customers_send_message_submit(
     customer_id: int,
     request: Request,
     db: Session = Depends(get_db),
@@ -2012,38 +2005,33 @@ def admin_customers_send_message(
     if not target_email:
         return RedirectResponse(url=f"/admin/customers/{customer_id}/send-message?msg=no_email", status_code=302)
 
-    subject_clean = (subject or "").strip()
+    subject_clean = (subject or "").strip() or "Sklavounos Meat – Ενημέρωση"
     message_clean = (message or "").strip()
-    if not subject_clean or not message_clean:
-        return RedirectResponse(url=f"/admin/customers/{customer_id}/send-message?msg=missing", status_code=302)
+    if not message_clean:
+        return RedirectResponse(url=f"/admin/customers/{customer_id}/send-message?msg=empty_message", status_code=302)
 
-    safe_message = (
-        message_clean
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-        .replace("'", "&#39;")
-        .replace("\n", "<br>")
-    )
     html_content = f"""
-    <div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#111;">
+    <div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;color:#111827;">
       <p>Καλησπέρα,</p>
-      <div>{safe_message}</div>
-      <p style="margin-top:24px;">Sklavounos Restaurants</p>
+      <div style="white-space:pre-line;">{message_clean}</div>
+      <p style="margin-top:24px;">Sklavounos Meat</p>
     </div>
-    """.strip()
+    """
 
-    ok, _reason = send_brevo_email(
-        to_email=target_email,
-        subject=subject_clean,
-        html_content=html_content,
-    )
-    if ok:
-        audit(db, actor=f"admin:{admin_u}", action="customer_send_message", payload=f"{c.slug}:{target_email}:{subject_clean}")
-        return RedirectResponse(url="/admin/customers?msg=message_sent", status_code=302)
-
-    return RedirectResponse(url=f"/admin/customers/{customer_id}/send-message?msg=error", status_code=302)
+    try:
+        ok, info = _send_brevo_email(
+            target_email=target_email,
+            subject=subject_clean,
+            html_content=html_content,
+        )
+        print("BREVO RESPONSE:", info)
+        if ok:
+            audit(db, actor=f"admin:{admin_u}", action="customer_send_message", payload=f"{c.slug}:{target_email}:{subject_clean}")
+            return RedirectResponse(url="/admin/customers?msg=message_sent", status_code=302)
+        return RedirectResponse(url=f"/admin/customers/{customer_id}/send-message?msg=error", status_code=302)
+    except Exception as e:
+        print("EMAIL ERROR:", repr(e))
+        return RedirectResponse(url=f"/admin/customers/{customer_id}/send-message?msg=error", status_code=302)
 
 @app.post("/admin/customers/create")
 def admin_customers_create(request: Request, afm: str = Form(""), db: Session = Depends(get_db), name: str = Form(""), pin: str = Form(...)):
