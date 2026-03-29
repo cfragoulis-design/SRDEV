@@ -211,34 +211,6 @@ span.flatpickr-weekday,
   </div>
 {% endif %}
 
-<div class="mb-4 bg-slate-900/40 border border-slate-800 rounded-2xl px-4 py-3">
-  <h3 class="text-sm font-semibold text-slate-200 mb-3">Στοιχεία Επικοινωνίας</h3>
-
-  <form method="post" action="/p/{{ customer.slug }}/update-contact" class="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-3xl">
-    <div>
-      <label class="text-sm text-slate-300">Email</label>
-      <input name="email"
-             value="{{ customer.email or '' }}"
-             placeholder="example@email.com"
-             class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white">
-    </div>
-
-    <div>
-      <label class="text-sm text-slate-300">Τηλέφωνο</label>
-      <input name="phone"
-             value="{{ customer.phone or '' }}"
-             placeholder="69XXXXXXXX"
-             class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white">
-    </div>
-
-    <div class="md:col-span-2 flex justify-end">
-      <button class="bg-emerald-600 hover:bg-emerald-500 rounded-lg px-4 py-2 text-sm font-medium">
-        Αποθήκευση στοιχείων
-      </button>
-    </div>
-  </form>
-</div>
-
 <form id="order-form" method="post" action="/p/{{ customer.slug }}/order" class="space-y-4">
   <input type="hidden" name="date_str" value="{{ date.isoformat() }}">
 
