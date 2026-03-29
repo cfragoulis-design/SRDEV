@@ -1,7 +1,5 @@
 {% extends "base.html" %}
 {% block content %}
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.css">
-<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 <style>
 .qty-input {
   height: 40px;
@@ -58,64 +56,8 @@ td:last-child {
     padding-left: 6px;
     padding-right: 6px;
   }
-  #deliveryDateModalInput {
-  color-scheme: dark;
 }
 }
-}
-  
-
-#deliveryDateModalInput {
-  background: #020617;
-  color: #ffffff;
-  cursor: pointer;
-}
-
-.flatpickr-calendar {
-  background: #0f172a;
-  border: 1px solid #334155;
-  box-shadow: 0 20px 50px rgba(0,0,0,0.45);
-}
-
-.flatpickr-months .flatpickr-month,
-.flatpickr-weekdays,
-span.flatpickr-weekday,
-.flatpickr-current-month .flatpickr-monthDropdown-months,
-.flatpickr-current-month input.cur-year {
-  background: #0f172a;
-  color: #fff;
-  fill: #fff;
-}
-
-.flatpickr-day {
-  color: #e2e8f0;
-}
-
-.flatpickr-day.selected,
-.flatpickr-day.startRange,
-.flatpickr-day.endRange,
-.flatpickr-day.selected:hover,
-.flatpickr-day.startRange:hover,
-.flatpickr-day.endRange:hover {
-  background: #10b981;
-  border-color: #10b981;
-  color: #fff;
-}
-
-.flatpickr-day.today {
-  border-color: #10b981;
-}
-
-.flatpickr-day.flatpickr-disabled,
-.flatpickr-day.flatpickr-disabled:hover {
-  color: #475569;
-}
-
-.flatpickr-day:hover {
-  background: #1e293b;
-  border-color: #1e293b;
-}
-
 </style>
 <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-4">
   <div>
@@ -155,14 +97,8 @@ span.flatpickr-weekday,
 </script>
 
 {% if message %}
-  <div class="mb-4 bg-emerald-900/30 border border-emerald-800 text-emerald-200 rounded-2xl px-4 py-3">
-    {{ message }}
-  </div>
-{% endif %}
-
-{% if pwd_error %}
   <div class="mb-4 bg-rose-900/30 border border-rose-800 text-rose-200 rounded-2xl px-4 py-3">
-    {{ pwd_error }}
+    {{ message }}
   </div>
 {% endif %}
 
@@ -210,6 +146,41 @@ span.flatpickr-weekday,
     {% endif %}
   </div>
 {% endif %}
+
+
+<div class="mb-4 bg-slate-900/40 border border-slate-800 rounded-2xl px-4 py-3">
+  <h3 class="text-sm font-semibold text-slate-200 mb-3">Στοιχεία Επικοινωνίας</h3>
+
+  <form method="post" action="/p/{{ customer.slug }}/update-contact" class="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-3xl">
+    <input type="hidden" name="date_str" value="{{ date.isoformat() }}">
+
+    <div>
+      <label class="text-sm text-slate-300">Email</label>
+      <input name="email"
+             value="{{ customer.email or '' }}"
+             placeholder="example@email.com"
+             class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white">
+    </div>
+
+    <div>
+      <label class="text-sm text-slate-300">Τηλέφωνο</label>
+      <input name="phone"
+             value="{{ customer.phone or '' }}"
+             placeholder="69XXXXXXXX"
+             class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white">
+    </div>
+
+    <div class="md:col-span-2 flex justify-end">
+      <button class="bg-emerald-600 hover:bg-emerald-500 rounded-lg px-4 py-2 text-sm font-medium">
+        Αποθήκευση στοιχείων
+      </button>
+    </div>
+
+    <div class="md:col-span-2">
+      <div id="contact-status" class="text-xs text-slate-400 mt-1"></div>
+    </div>
+  </form>
+</div>
 
 <form id="order-form" method="post" action="/p/{{ customer.slug }}/order" class="space-y-4">
   <input type="hidden" name="date_str" value="{{ date.isoformat() }}">
@@ -285,43 +256,6 @@ span.flatpickr-weekday,
     </button>
   </div>
 </form>
-
-
-<div class="bg-slate-900/40 border border-slate-800 rounded-2xl p-4">
-  <h3 class="text-sm font-semibold text-slate-200 mb-3">Αλλαγή PIN</h3>
-  <form method="post" action="/p/{{ customer.slug }}/change-pin" class="space-y-3">
-    <input type="hidden" name="current_date" value="{{ date.isoformat() }}">
-
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 max-w-4xl">
-      <div>
-        <label class="text-sm text-slate-300">Τρέχον PIN</label>
-        <input type="password" name="current_pin"
-               class="mt-1 w-full max-w-xs bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm"
-               required>
-      </div>
-
-      <div>
-        <label class="text-sm text-slate-300">Νέο PIN</label>
-        <input type="password" name="new_pin"
-               class="mt-1 w-full max-w-xs bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm"
-               required>
-      </div>
-
-      <div>
-        <label class="text-sm text-slate-300">Επιβεβαίωση</label>
-        <input type="password" name="confirm_pin"
-               class="mt-1 w-full max-w-xs bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm"
-               required>
-      </div>
-    </div>
-
-    <div class="max-w-4xl flex justify-start md:justify-end">
-      <button class="bg-slate-900 border border-slate-700 hover:bg-slate-800 rounded-lg px-4 py-2 text-sm">
-        Αλλαγή PIN
-      </button>
-    </div>
-  </form>
-</div>
 
 {% if history_orders and history_orders|length > 0 %}
   <div class="mt-8">
@@ -554,96 +488,6 @@ span.flatpickr-weekday,
   }
 
   searchInput.addEventListener('input', applySearch);
-})();
-</script>
-
-
-<!-- Forced delivery date modal (added safely; does not alter existing portal layout) -->
-<div id="deliveryDateModal"
-     class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 px-4">
-  <div class="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl">
-    <h2 class="text-lg font-semibold text-white">Επιλέξτε ημερομηνία παράδοσης</h2>
-    <p class="mt-2 text-sm text-slate-300">
-      Για να συνεχίσετε με την παραγγελία σας, επιλέξτε πρώτα ημερομηνία παράδοσης.
-    </p>
-
-    <input id="deliveryDateModalInput" type="text" readonly placeholder="Επιλέξτε ημερομηνία"
-       class="mt-4 w-full rounded-xl border border-slate-600 bg-slate-950 px-3 py-2 text-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none">
-
-    <div id="deliveryDateModalError" class="mt-2 hidden text-sm text-rose-300">
-      Παρακαλώ επιλέξτε ημερομηνία.
-    </div>
-
-    <button id="deliveryDateModalConfirm" type="button"
-            class="mt-4 w-full rounded-xl bg-emerald-600 px-4 py-2 font-medium text-white hover:bg-emerald-500">
-      Συνέχεια
-    </button>
-  </div>
-</div>
-
-<script>
-(function () {
-  if (window.__srForcedDeliveryDateInit) return;
-  window.__srForcedDeliveryDateInit = true;
-
-  const dateForm = document.getElementById('portal-date-form');
-  const visibleDateInput = document.getElementById('portal-date');
-  const hiddenDateInput = document.querySelector('#order-form input[name="date_str"]');
-
-  const modal = document.getElementById('deliveryDateModal');
-  const modalInput = document.getElementById('deliveryDateModalInput');
-  const modalConfirm = document.getElementById('deliveryDateModalConfirm');
-  const modalError = document.getElementById('deliveryDateModalError');
-
-  if (!dateForm || !visibleDateInput || !modal || !modalInput || !modalConfirm) return;
-
-  function goToDate(val) {
-    if (!val) return;
-    const url = new URL(dateForm.getAttribute('action') || window.location.pathname, window.location.origin);
-    url.searchParams.set('date_str', val);
-    window.location.href = url.toString();
-  }
-
-  let picker = null;
-  if (window.flatpickr) {
-    picker = flatpickr(modalInput, {
-      dateFormat: "Y-m-d",
-      disableMobile: true,
-      clickOpens: true,
-      allowInput: false
-    });
-  }
-
-  const url = new URL(window.location.href);
-  const hasExplicitDate = !!(url.searchParams.get('date_str') || '').trim();
-
-  if (!hasExplicitDate) {
-    visibleDateInput.value = '';
-    if (hiddenDateInput) hiddenDateInput.value = '';
-
-    modal.classList.remove('hidden');
-    modal.classList.add('flex');
-
-    setTimeout(function () {
-      modalInput.focus();
-      if (picker) picker.open();
-    }, 120);
-  }
-
-  modalInput.addEventListener('click', function () {
-    if (picker) picker.open();
-  });
-
-  modalConfirm.addEventListener('click', function () {
-    const val = (modalInput.value || '').trim();
-    if (!val) {
-      modalError.classList.remove('hidden');
-      if (picker) picker.open();
-      return;
-    }
-    modalError.classList.add('hidden');
-    goToDate(val);
-  });
 })();
 </script>
 
