@@ -14,7 +14,7 @@ from sqlalchemy import select, text, inspect, func, delete
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from .db import Base, engine, get_db
-from .models import AdminUser, Customer, CustomerSlugAlias, Unit, Product, CustomerProduct, Order, OrderLine, AuditLog, Announcement, AnnouncementRead, PrintJob
+from .models import AdminUser, Customer, CustomerSlugAlias, Unit, Product, CustomerProduct, Order, OrderLine, AuditLog, Announcement, AnnouncementRead, PrintJob, DashboardPriority
 from .security import hash_secret, verify_secret
 from .auth import sign_session, get_admin_username, get_portal_customer
 from .utils import slugify
@@ -1091,6 +1091,17 @@ def admin_dashboard(request: Request, db: Session = Depends(get_db), date_str: s
             }
         )
 
+    priority_rows = db.execute(
+        select(DashboardPriority.customer_id, DashboardPriority.position)
+        .where(DashboardPriority.order_date == d)
+        .order_by(DashboardPriority.position.asc(), DashboardPriority.id.asc())
+    ).all()
+    priority_map = {int(cid): int(pos or 0) for cid, pos in priority_rows}
+    summaries = sorted(
+        summaries,
+        key=lambda s: (0 if s["customer"].id in priority_map else 1, priority_map.get(s["customer"].id, 10**9), (s["customer"].name or "").lower()),
+    )
+
     # Aggregate product totals for the selected day (quick prep view).
     # Uses ordered quantities (qty) across all active customers' orders.
     total_rows = db.execute(
@@ -1156,6 +1167,45 @@ def admin_dashboard(request: Request, db: Session = Depends(get_db), date_str: s
             "product_totals_total_kg": round(total_kg, 3),
         },
     )
+
+
+@app.post("/admin/dashboard/save-priority")
+async def admin_dashboard_save_priority(request: Request, db: Session = Depends(get_db)):
+    admin_u = require_admin(request)
+    payload = await request.json()
+
+    try:
+        d = date.fromisoformat(str(payload.get("date_str") or "").strip())
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid_date"}, status_code=400)
+
+    raw_ids = payload.get("customer_ids") or []
+    if not isinstance(raw_ids, list):
+        return JSONResponse({"ok": False, "error": "invalid_customer_ids"}, status_code=400)
+
+    customer_ids = []
+    seen = set()
+    for raw in raw_ids:
+        try:
+            cid = int(raw)
+        except Exception:
+            continue
+        if cid <= 0 or cid in seen:
+            continue
+        seen.add(cid)
+        customer_ids.append(cid)
+
+    db.execute(delete(DashboardPriority).where(DashboardPriority.order_date == d))
+    for pos, cid in enumerate(customer_ids, start=1):
+        db.add(DashboardPriority(order_date=d, customer_id=cid, position=pos))
+    db.commit()
+
+    try:
+        audit(db, str(admin_u.username), "dashboard_priority_saved", f"date={d.isoformat()} ids={','.join(str(x) for x in customer_ids)}")
+    except Exception:
+        pass
+
+    return JSONResponse({"ok": True, "count": len(customer_ids)})
 
 
 @app.get("/admin/dashboard/live-status")
@@ -1888,17 +1938,6 @@ def admin_customers(request: Request, db: Session = Depends(get_db)):
     customers = db.execute(select(Customer).order_by(Customer.name)).scalars().all()
     return templates.TemplateResponse("admin_customers.html", {"request": request, "admin_user": admin_u, "customers": customers})
 
-@app.get("/admin/customers/{customer_id}/open-portal")
-def admin_customers_open_portal(customer_id: int, request: Request, db: Session = Depends(get_db)):
-    admin_u = require_admin(request)
-    c = db.get(Customer, customer_id)
-    if not c or not bool(c.is_active):
-        raise HTTPException(404)
-    resp = RedirectResponse(url=f"/p/{c.slug}/order", status_code=302)
-    resp.set_cookie("portal_session", sign_session({"c": c.slug}), httponly=True, samesite="lax")
-    audit(db, actor=f"admin:{admin_u}", action="customer_open_portal", payload=c.slug)
-    return resp
-
 @app.post("/admin/customers/create")
 def admin_customers_create(request: Request, afm: str = Form(""), db: Session = Depends(get_db), name: str = Form(""), pin: str = Form(...)):
     admin_u = require_admin(request)
@@ -2387,7 +2426,7 @@ def portal_pin_post(slug: str, request: Request, db: Session = Depends(get_db), 
     return resp
 
 @app.get("/p/{slug}/order", response_class=HTMLResponse)
-def portal_order_get(slug: str, request: Request, db: Session = Depends(get_db), date_str: str | None = None, empty_error: int = 0, pwd_msg: str | None = None, pwd_err: str | None = None):
+def portal_order_get(slug: str, request: Request, db: Session = Depends(get_db), date_str: str | None = None, empty_error: int = 0):
     c, canon = _portal_customer_by_slug_or_alias(db, slug)
     if not c:
         raise HTTPException(404)
@@ -2486,45 +2525,7 @@ def portal_order_get(slug: str, request: Request, db: Session = Depends(get_db),
     except Exception:
         history_orders = []
 
-    return templates.TemplateResponse("portal_order.html", {"request": request, "customer": c, "date": d, "items": cps, "qty_map": qty_map_disp, "qty_map_disp": qty_map_disp, "locked": locked, "submitted": submitted, "comment": (comment or ""), "history_orders": history_orders, "empty_error": bool(empty_error), "message": pwd_msg, "pwd_error": pwd_err})
-
-@app.post("/p/{slug}/change-pin")
-def portal_change_pin(
-    slug: str,
-    request: Request,
-    db: Session = Depends(get_db),
-    current_pin: str = Form(...),
-    new_pin: str = Form(...),
-    confirm_pin: str = Form(...),
-    current_date: str = Form(""),
-):
-    c, canon = _portal_customer_by_slug_or_alias(db, slug)
-    if not c:
-        raise HTTPException(404)
-    if canon != slug:
-        return RedirectResponse(url=f"/p/{canon}/order", status_code=302)
-    if get_portal_customer(request) != canon:
-        raise HTTPException(status_code=401)
-
-    date_q = f"?date_str={current_date}" if (current_date or '').strip() else ''
-
-    cur = (current_pin or '').strip()
-    new = (new_pin or '').strip()
-    conf = (confirm_pin or '').strip()
-
-    if not verify_secret(cur, c.pin_hash):
-        return RedirectResponse(url=f"/p/{slug}/order{date_q}{'&' if date_q else '?'}pwd_err=Λάθος+τρέχον+PIN.", status_code=303)
-    if len(new) < 4:
-        return RedirectResponse(url=f"/p/{slug}/order{date_q}{'&' if date_q else '?'}pwd_err=Το+νέο+PIN+πρέπει+να+έχει+τουλάχιστον+4+χαρακτήρες.", status_code=303)
-    if new != conf:
-        return RedirectResponse(url=f"/p/{slug}/order{date_q}{'&' if date_q else '?'}pwd_err=Το+νέο+PIN+και+η+επιβεβαίωση+δεν+ταιριάζουν.", status_code=303)
-    if cur == new:
-        return RedirectResponse(url=f"/p/{slug}/order{date_q}{'&' if date_q else '?'}pwd_err=Το+νέο+PIN+πρέπει+να+είναι+διαφορετικό+από+το+τρέχον.", status_code=303)
-
-    c.pin_hash = hash_secret(new)
-    db.commit()
-    audit(db, actor=f"portal:{slug}", action="portal_change_pin")
-    return RedirectResponse(url=f"/p/{slug}/order{date_q}{'&' if date_q else '?'}pwd_msg=Το+PIN+άλλαξε+επιτυχώς.", status_code=303)
+    return templates.TemplateResponse("portal_order.html", {"request": request, "customer": c, "date": d, "items": cps, "qty_map": qty_map_disp, "qty_map_disp": qty_map_disp, "locked": locked, "submitted": submitted, "comment": (comment or ""), "history_orders": history_orders, "empty_error": bool(empty_error)})
 
 @app.post("/p/{slug}/order")
 async def portal_order_post(slug: str, request: Request, db: Session = Depends(get_db), date_str: str = Form(...), comment: str = Form("")):
