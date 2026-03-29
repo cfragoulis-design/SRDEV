@@ -2,15 +2,17 @@
 {% block content %}
 {% include "admin_nav.html" %}
 
+<div id="mail-toast-wrap" class="fixed top-4 right-4 z-50 space-y-2">
 {% if msg == "sent" %}
-<div class="mb-4 bg-emerald-900/30 border border-emerald-800 text-emerald-200 rounded-2xl px-4 py-3">Το δοκιμαστικό email στάλθηκε.</div>
-{% elif msg == "no_email" %}
-<div class="mb-4 bg-amber-900/30 border border-amber-800 text-amber-200 rounded-2xl px-4 py-3">Ο πελάτης δεν έχει email.</div>
-{% elif msg == "error" %}
-<div class="mb-4 bg-rose-900/30 border border-rose-800 text-rose-200 rounded-2xl px-4 py-3">Η αποστολή email απέτυχε. Δες τα Railway logs.</div>
+  <div class="mail-toast bg-emerald-900/95 border border-emerald-700 text-emerald-100 rounded-2xl px-4 py-3 shadow-2xl">Το δοκιμαστικό email στάλθηκε.</div>
 {% elif msg == "message_sent" %}
-<div class="mb-4 bg-emerald-900/30 border border-emerald-800 text-emerald-200 rounded-2xl px-4 py-3">Το μήνυμα στάλθηκε επιτυχώς.</div>
+  <div class="mail-toast bg-emerald-900/95 border border-emerald-700 text-emerald-100 rounded-2xl px-4 py-3 shadow-2xl">Αποστολή επιτυχής ✓</div>
+{% elif msg == "no_email" %}
+  <div class="mail-toast bg-amber-900/95 border border-amber-700 text-amber-100 rounded-2xl px-4 py-3 shadow-2xl">Ο πελάτης δεν έχει email.</div>
+{% elif msg == "error" %}
+  <div class="mail-toast bg-rose-900/95 border border-rose-700 text-rose-100 rounded-2xl px-4 py-3 shadow-2xl">Η αποστολή email απέτυχε. Δες τα Railway logs.</div>
 {% endif %}
+</div>
 
 <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
   <div class="lg:col-span-1 bg-slate-900/60 border border-slate-1000 rounded-2xl p-5">
@@ -36,11 +38,12 @@
   </div>
 
   <div class="lg:col-span-3 bg-slate-900/40 border border-slate-800 rounded-2xl overflow-x-auto">
-    <table class="w-full text-sm min-w-[1400px]">
+    <table class="w-full text-sm min-w-[1580px]">
       <thead class="bg-slate-900">
         <tr class="text-slate-300">
           <th class="text-left px-4 py-3">Name</th>
           <th class="text-left px-4 py-3">Slug</th>
+          <th class="text-left px-4 py-3">Email</th>
           <th class="text-left px-4 py-3">Edit Slug</th>
           <th class="text-left px-4 py-3">Delete</th>
           <th class="text-left px-4 py-3">Portal</th>
@@ -58,6 +61,13 @@
           <td class="px-4 py-3 font-medium">{{ c.name }}</td>
           <td class="px-4 py-3 text-slate-300">{{ c.slug }}</td>
           <td class="px-4 py-3">
+            {% if c.email %}
+              <div class="text-slate-200">{{ c.email }}</div>
+            {% else %}
+              <span class="inline-flex items-center rounded-lg border border-amber-700/60 text-amber-200 px-3 py-1">No email</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-3">
             <form method="post" action="/admin/customers/{{ c.id }}/update" class="flex gap-2 items-center">
               <input type="hidden" name="name" value="{{ c.name }}">
               <input type="hidden" name="afm" value="{{ c.afm }}">
@@ -66,7 +76,9 @@
             </form>
           </td>
           <td class="px-4 py-3">
-            <form method="post" action="/admin/customers/{{ c.id }}/delete" onsubmit="return confirm('Να γίνει διαγραφή/απενεργοποίηση;\n\nΑν υπάρχουν παραγγελίες, ο πελάτης θα απενεργοποιηθεί και θα μετονομαστεί ώστε να μπορείς να τον ξαναπεράσεις.');">
+            <form method="post" action="/admin/customers/{{ c.id }}/delete" onsubmit="return confirm('Να γίνει διαγραφή/απενεργοποίηση;
+
+Αν υπάρχουν παραγγελίες, ο πελάτης θα απενεργοποιηθεί και θα μετονομαστεί ώστε να μπορείς να τον ξαναπεράσεις.');">
               <button class="bg-rose-900/40 border border-rose-800 hover:bg-rose-900/60 text-rose-200 rounded-xl px-3 py-2">Delete</button>
             </form>
           </td>
@@ -104,4 +116,15 @@
     </table>
   </div>
 </div>
+
+<script>
+  setTimeout(function () {
+    document.querySelectorAll('.mail-toast').forEach(function (el) {
+      el.style.transition = 'opacity 0.35s ease, transform 0.35s ease';
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(-6px)';
+      setTimeout(function () { el.remove(); }, 400);
+    });
+  }, 2400);
+</script>
 {% endblock %}
