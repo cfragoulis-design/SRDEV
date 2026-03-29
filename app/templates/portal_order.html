@@ -583,6 +583,65 @@ span.flatpickr-weekday,
 
   searchInput.addEventListener('input', applySearch);
 })();
+
+  <script>
+(function() {
+  const emailInput = document.querySelector('input[name="email"]');
+  const phoneInput = document.querySelector('input[name="phone"]');
+  const statusEl = document.getElementById('contact-status');
+
+  if (!emailInput || !phoneInput) return;
+
+  let timer = null;
+
+  function setStatus(txt, color="text-slate-400") {
+    statusEl.className = "text-xs mt-1 " + color;
+    statusEl.textContent = txt;
+  }
+
+  async function saveContact() {
+    const email = emailInput.value.trim();
+    const phone = phoneInput.value.trim();
+
+    const params = new URLSearchParams(window.location.search);
+    const date_str = params.get("date_str") || "";
+
+    setStatus("Αποθήκευση...", "text-yellow-400");
+
+    try {
+      const res = await fetch(`/p/{{ customer.slug }}/update-contact`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          email,
+          phone,
+          date_str
+        })
+      });
+
+      if (res.ok) {
+        setStatus("Αποθηκεύτηκε", "text-emerald-400");
+      } else {
+        setStatus("Σφάλμα", "text-red-400");
+      }
+    } catch (e) {
+      setStatus("Σφάλμα", "text-red-400");
+    }
+  }
+
+  function triggerSave() {
+    clearTimeout(timer);
+    timer = setTimeout(saveContact, 800);
+  }
+
+  emailInput.addEventListener("input", triggerSave);
+  phoneInput.addEventListener("input", triggerSave);
+
+  emailInput.addEventListener("blur", saveContact);
+  phoneInput.addEventListener("blur", saveContact);
+})();
 </script>
 
 
@@ -601,6 +660,8 @@ span.flatpickr-weekday,
     <div id="deliveryDateModalError" class="mt-2 hidden text-sm text-rose-300">
       Παρακαλώ επιλέξτε ημερομηνία.
     </div>
+
+    <div id="contact-status" class="text-xs text-slate-400 mt-1"></div>
 
     <button id="deliveryDateModalConfirm" type="button"
             class="mt-4 w-full rounded-xl bg-emerald-600 px-4 py-2 font-medium text-white hover:bg-emerald-500">
