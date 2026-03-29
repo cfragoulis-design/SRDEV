@@ -68,29 +68,6 @@
   </div>
 {% endif %}
 
-
-<!-- Forced delivery date selection modal -->
-<div id="deliveryDateModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 px-4">
-  <div class="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl">
-    <h2 class="text-lg font-semibold text-white">Επιλέξτε ημερομηνία παράδοσης</h2>
-    <p class="mt-2 text-sm text-slate-300">
-      Για να συνεχίσετε την παραγγελία, πρέπει πρώτα να επιλέξετε ημερομηνία παράδοσης.
-    </p>
-
-    <input id="deliveryDateModalInput" type="date"
-           class="mt-4 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-white">
-
-    <div id="deliveryDateModalError" class="mt-2 hidden text-sm text-rose-300">
-      Παρακαλώ επιλέξτε ημερομηνία.
-    </div>
-
-    <button id="deliveryDateModalConfirm" type="button"
-            class="mt-4 w-full rounded-xl bg-emerald-600 px-4 py-2 font-medium text-white hover:bg-emerald-500">
-      Συνέχεια
-    </button>
-  </div>
-</div>
-
 <form method="post" action="/p/{{ customer.slug }}/order" class="space-y-4">
   <input type="hidden" name="date_str" value="{{ date.isoformat() }}">
 
@@ -139,76 +116,102 @@
     </button>
   </div>
 </form>
-
 <script>
-(function () {
-  if (window.__srPortalDateInit) return;
-  window.__srPortalDateInit = true;
+(function(){
+  // Auto-change date without requiring the user to click Go.
+  // Use a safe GET redirect to avoid partial POSTs and never block future dates.
+  const form = document.getElementById('portal-date-form');
+  const dateEl = document.getElementById('portal-date');
+  if (!form || !dateEl) return;
+  dateEl.addEventListener('change', function(){
+    try {
+      if (!dateEl.value) return;
+      const url = new URL(form.getAttribute('action') || window.location.pathname, window.location.origin);
+      url.searchParams.set('date_str', dateEl.value);
+      window.location.href = url.toString();
+    } catch (e) {
+      // Fallback: submit the GET form
+      try { form.submit(); } catch (e2) {}
+    }
+  });
+})();
+</script>
+<script>
+(function(){
+  const form = document.getElementById('order-form');
+  if(!form) return;
+  form.addEventListener('submit', function(){
+    const btn = form.querySelector('button[type="submit"], button:not([type])');
+    if(btn){
+      btn.disabled = true;
+      btn.textContent = 'Υποβολή...';
+    }
+  });
+})();
+</script>
 
-  const dateForm = document.getElementById('portal-date-form');
-  const portalDate = document.getElementById('portal-date');
-  const orderForm = document.querySelector('form[method="post"][action^="/p/"]');
+<!-- Delivery date required modal -->
+<div id="deliveryDateModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 px-4">
+  <div class="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl">
+    <h2 class="text-lg font-semibold text-white">Επιλέξτε ημερομηνία παράδοσης</h2>
+    <p class="mt-2 text-sm text-slate-300">
+      Για να συνεχίσετε την παραγγελία, πρέπει πρώτα να επιλέξετε ημερομηνία παράδοσης.
+    </p>
+
+    <input id="deliveryDateModalInput" type="date"
+           class="mt-4 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-white">
+
+    <div id="deliveryDateModalError" class="mt-2 hidden text-sm text-rose-300">
+      Παρακαλώ επιλέξτε ημερομηνία.
+    </div>
+
+    <button id="deliveryDateModalConfirm" type="button"
+            class="mt-4 w-full rounded-xl bg-emerald-600 px-4 py-2 font-medium text-white hover:bg-emerald-500">
+      Συνέχεια
+    </button>
+  </div>
+</div>
+<script>
+(function(){
+  if (window.__srPortalForcedDateInit) return;
+  window.__srPortalForcedDateInit = true;
 
   const modal = document.getElementById('deliveryDateModal');
   const modalInput = document.getElementById('deliveryDateModalInput');
   const modalConfirm = document.getElementById('deliveryDateModalConfirm');
   const modalError = document.getElementById('deliveryDateModalError');
+  const dateForm = document.getElementById('portal-date-form');
+  const topDateInput = document.getElementById('portal-date');
 
-  if (!dateForm || !portalDate) return;
+  if (!modal || !modalInput || !modalConfirm || !dateForm || !topDateInput) return;
 
-  function redirectWithDate(val) {
-    if (!val) return;
-    const url = new URL(dateForm.getAttribute('action') || window.location.pathname, window.location.origin);
-    url.searchParams.set('date_str', val);
-    window.location.href = url.toString();
-  }
-
-  // Existing top date field keeps working when the user changes it later.
-  portalDate.addEventListener('change', function () {
-    const val = (portalDate.value || '').trim();
-    if (!val) return;
-    redirectWithDate(val);
-  });
-
-  // Force selection only on first entry, when there is no ?date_str= in the URL.
   const url = new URL(window.location.href);
   const hasExplicitDate = !!(url.searchParams.get('date_str') || '').trim();
 
-  if (!hasExplicitDate && modal && modalInput && modalConfirm) {
+  if (!hasExplicitDate) {
     modal.classList.remove('hidden');
     modal.classList.add('flex');
 
-    // Clear the visible top field until the user chooses a date explicitly.
-    portalDate.value = '';
-
-    setTimeout(function () {
+    setTimeout(function(){
       modalInput.focus();
       if (typeof modalInput.showPicker === 'function') {
         try { modalInput.showPicker(); } catch (e) {}
       }
     }, 150);
-
-    modalConfirm.addEventListener('click', function () {
-      const val = (modalInput.value || '').trim();
-      if (!val) {
-        modalError.classList.remove('hidden');
-        return;
-      }
-      modalError.classList.add('hidden');
-      redirectWithDate(val);
-    });
   }
 
-  // Prevent double submit.
-  if (orderForm) {
-    orderForm.addEventListener('submit', function () {
-      const btn = orderForm.querySelector('button[type="submit"], button:not([type])');
-      if (btn) {
-        btn.disabled = true;
-        btn.textContent = 'Υποβολή...';
-      }
-    });
-  }
+  modalConfirm.addEventListener('click', function(){
+    const val = (modalInput.value || '').trim();
+    if (!val) {
+      modalError.classList.remove('hidden');
+      return;
+    }
+    modalError.classList.add('hidden');
+    topDateInput.value = val;
+    const nextUrl = new URL(dateForm.getAttribute('action') || window.location.pathname, window.location.origin);
+    nextUrl.searchParams.set('date_str', val);
+    window.location.href = nextUrl.toString();
+  });
 })();
 </script>
 
