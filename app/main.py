@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
-from sqlalchemy import select, text, inspect, func, delete, bindparam
+from sqlalchemy import select, text, inspect, func, delete
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from .db import Base, engine, get_db
@@ -408,46 +408,6 @@ def lock_job():
         if changed:
             db.commit()
 
-
-
-def ensure_dashboard_priorities_table() -> None:
-    with engine.begin() as conn:
-        dialect = conn.dialect.name
-        if dialect == "sqlite":
-            conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS dashboard_priorities (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    dashboard_date DATE NOT NULL,
-                    customer_id INTEGER NOT NULL,
-                    sort_order INTEGER NOT NULL DEFAULT 0,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(dashboard_date, customer_id),
-                    FOREIGN KEY(customer_id) REFERENCES customers(id)
-                )
-            """))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_dashboard_priorities_date_order ON dashboard_priorities(dashboard_date, sort_order)"))
-        else:
-            conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS dashboard_priorities (
-                    id SERIAL PRIMARY KEY,
-                    dashboard_date DATE NOT NULL,
-                    customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
-                    sort_order INTEGER NOT NULL DEFAULT 0,
-                    created_at TIMESTAMP DEFAULT NOW(),
-                    updated_at TIMESTAMP DEFAULT NOW(),
-                    UNIQUE(dashboard_date, customer_id)
-                )
-            """))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_dashboard_priorities_date_order ON dashboard_priorities(dashboard_date, sort_order)"))
-
-
-def load_dashboard_priority_map(db: Session, d: date) -> dict[int, int]:
-    rows = db.execute(
-        text("SELECT customer_id, sort_order FROM dashboard_priorities WHERE dashboard_date = :d ORDER BY sort_order ASC, customer_id ASC"),
-        {"d": d},
-    ).all()
-    return {int(customer_id): int(sort_order) for customer_id, sort_order in rows}
 @app.on_event("startup")
 def on_startup():
     Base.metadata.create_all(bind=engine)
@@ -457,7 +417,6 @@ def on_startup():
     ensure_orders_extra_columns()
     ensure_order_lines_extra_columns()
     ensure_announcements_v2_schema()
-    ensure_dashboard_priorities_table()
     with next(get_db()) as db:  # type: ignore
         ensure_units(db)
         ensure_admins(db)
@@ -1132,9 +1091,6 @@ def admin_dashboard(request: Request, db: Session = Depends(get_db), date_str: s
             }
         )
 
-    priority_map = load_dashboard_priority_map(db, d)
-    summaries.sort(key=lambda s: (priority_map.get(int(s["customer"].id), 10**9), (s["customer"].name or "").lower()))
-
     # Aggregate product totals for the selected day (quick prep view).
     # Uses ordered quantities (qty) across all active customers' orders.
     total_rows = db.execute(
@@ -1200,55 +1156,6 @@ def admin_dashboard(request: Request, db: Session = Depends(get_db), date_str: s
             "product_totals_total_kg": round(total_kg, 3),
         },
     )
-
-
-@app.post("/admin/dashboard/save-order")
-async def admin_dashboard_save_order(request: Request, db: Session = Depends(get_db)):
-    admin_u = require_admin(request)
-    payload = await request.json()
-    date_str = str((payload or {}).get("date_str") or "").strip()
-    ids = (payload or {}).get("customer_ids") or []
-
-    try:
-        d = date.fromisoformat(date_str)
-    except Exception:
-        return JSONResponse({"ok": False, "error": "invalid_date"}, status_code=400)
-
-    clean_ids: list[int] = []
-    seen: set[int] = set()
-    for raw in ids:
-        try:
-            cid = int(raw)
-        except Exception:
-            continue
-        if cid <= 0 or cid in seen:
-            continue
-        clean_ids.append(cid)
-        seen.add(cid)
-
-    if not clean_ids:
-        return JSONResponse({"ok": False, "error": "empty_order"}, status_code=400)
-
-    existing_ids = {int(x) for (x,) in db.execute(select(Customer.id).where(Customer.id.in_(clean_ids))).all()}
-    clean_ids = [cid for cid in clean_ids if cid in existing_ids]
-    if not clean_ids:
-        return JSONResponse({"ok": False, "error": "no_valid_customers"}, status_code=400)
-
-    with engine.begin() as conn:
-        conn.execute(text("DELETE FROM dashboard_priorities WHERE dashboard_date = :d AND customer_id IN :ids").bindparams(bindparam("ids", expanding=True)), {"d": d, "ids": clean_ids})
-        rows = [{"d": d, "cid": cid, "sort_order": idx} for idx, cid in enumerate(clean_ids)]
-        if conn.dialect.name == "sqlite":
-            conn.execute(text("INSERT OR REPLACE INTO dashboard_priorities (dashboard_date, customer_id, sort_order, updated_at) VALUES (:d, :cid, :sort_order, CURRENT_TIMESTAMP)"), rows)
-        else:
-            conn.execute(text("""
-                INSERT INTO dashboard_priorities (dashboard_date, customer_id, sort_order, updated_at)
-                VALUES (:d, :cid, :sort_order, NOW())
-                ON CONFLICT (dashboard_date, customer_id)
-                DO UPDATE SET sort_order = EXCLUDED.sort_order, updated_at = NOW()
-            """), rows)
-
-    audit(db, admin_u, "dashboard.reorder", payload=f"date={d.isoformat()};ids={','.join(str(x) for x in clean_ids)}")
-    return JSONResponse({"ok": True, "saved": len(clean_ids)})
 
 
 @app.get("/admin/dashboard/live-status")
@@ -1981,6 +1888,17 @@ def admin_customers(request: Request, db: Session = Depends(get_db)):
     customers = db.execute(select(Customer).order_by(Customer.name)).scalars().all()
     return templates.TemplateResponse("admin_customers.html", {"request": request, "admin_user": admin_u, "customers": customers})
 
+@app.get("/admin/customers/{customer_id}/open-portal")
+def admin_customers_open_portal(customer_id: int, request: Request, db: Session = Depends(get_db)):
+    admin_u = require_admin(request)
+    c = db.get(Customer, customer_id)
+    if not c or not bool(c.is_active):
+        raise HTTPException(404)
+    resp = RedirectResponse(url=f"/p/{c.slug}/order", status_code=302)
+    resp.set_cookie("portal_session", sign_session({"c": c.slug}), httponly=True, samesite="lax")
+    audit(db, actor=f"admin:{admin_u}", action="customer_open_portal", payload=c.slug)
+    return resp
+
 @app.post("/admin/customers/create")
 def admin_customers_create(request: Request, afm: str = Form(""), db: Session = Depends(get_db), name: str = Form(""), pin: str = Form(...)):
     admin_u = require_admin(request)
@@ -2469,7 +2387,7 @@ def portal_pin_post(slug: str, request: Request, db: Session = Depends(get_db), 
     return resp
 
 @app.get("/p/{slug}/order", response_class=HTMLResponse)
-def portal_order_get(slug: str, request: Request, db: Session = Depends(get_db), date_str: str | None = None, empty_error: int = 0):
+def portal_order_get(slug: str, request: Request, db: Session = Depends(get_db), date_str: str | None = None, empty_error: int = 0, pwd_msg: str | None = None, pwd_err: str | None = None):
     c, canon = _portal_customer_by_slug_or_alias(db, slug)
     if not c:
         raise HTTPException(404)
@@ -2568,7 +2486,45 @@ def portal_order_get(slug: str, request: Request, db: Session = Depends(get_db),
     except Exception:
         history_orders = []
 
-    return templates.TemplateResponse("portal_order.html", {"request": request, "customer": c, "date": d, "items": cps, "qty_map": qty_map_disp, "qty_map_disp": qty_map_disp, "locked": locked, "submitted": submitted, "comment": (comment or ""), "history_orders": history_orders, "empty_error": bool(empty_error)})
+    return templates.TemplateResponse("portal_order.html", {"request": request, "customer": c, "date": d, "items": cps, "qty_map": qty_map_disp, "qty_map_disp": qty_map_disp, "locked": locked, "submitted": submitted, "comment": (comment or ""), "history_orders": history_orders, "empty_error": bool(empty_error), "message": pwd_msg, "pwd_error": pwd_err})
+
+@app.post("/p/{slug}/change-pin")
+def portal_change_pin(
+    slug: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_pin: str = Form(...),
+    new_pin: str = Form(...),
+    confirm_pin: str = Form(...),
+    current_date: str = Form(""),
+):
+    c, canon = _portal_customer_by_slug_or_alias(db, slug)
+    if not c:
+        raise HTTPException(404)
+    if canon != slug:
+        return RedirectResponse(url=f"/p/{canon}/order", status_code=302)
+    if get_portal_customer(request) != canon:
+        raise HTTPException(status_code=401)
+
+    date_q = f"?date_str={current_date}" if (current_date or '').strip() else ''
+
+    cur = (current_pin or '').strip()
+    new = (new_pin or '').strip()
+    conf = (confirm_pin or '').strip()
+
+    if not verify_secret(cur, c.pin_hash):
+        return RedirectResponse(url=f"/p/{slug}/order{date_q}{'&' if date_q else '?'}pwd_err=Λάθος+τρέχον+PIN.", status_code=303)
+    if len(new) < 4:
+        return RedirectResponse(url=f"/p/{slug}/order{date_q}{'&' if date_q else '?'}pwd_err=Το+νέο+PIN+πρέπει+να+έχει+τουλάχιστον+4+χαρακτήρες.", status_code=303)
+    if new != conf:
+        return RedirectResponse(url=f"/p/{slug}/order{date_q}{'&' if date_q else '?'}pwd_err=Το+νέο+PIN+και+η+επιβεβαίωση+δεν+ταιριάζουν.", status_code=303)
+    if cur == new:
+        return RedirectResponse(url=f"/p/{slug}/order{date_q}{'&' if date_q else '?'}pwd_err=Το+νέο+PIN+πρέπει+να+είναι+διαφορετικό+από+το+τρέχον.", status_code=303)
+
+    c.pin_hash = hash_secret(new)
+    db.commit()
+    audit(db, actor=f"portal:{slug}", action="portal_change_pin")
+    return RedirectResponse(url=f"/p/{slug}/order{date_q}{'&' if date_q else '?'}pwd_msg=Το+PIN+άλλαξε+επιτυχώς.", status_code=303)
 
 @app.post("/p/{slug}/order")
 async def portal_order_post(slug: str, request: Request, db: Session = Depends(get_db), date_str: str = Form(...), comment: str = Form("")):

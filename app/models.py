@@ -218,18 +218,3 @@ class AvailableLabel(Base):
     __table_args__ = (
         UniqueConstraint("station", "name", name="uq_available_label_station_name"),
     )
-
-class DashboardPriority(Base):
-    __tablename__ = "dashboard_priorities"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    order_date: Mapped[date] = mapped_column(Date, index=True)
-    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), index=True)
-    position: Mapped[int] = mapped_column(Integer, default=0)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-
-    __table_args__ = (
-        UniqueConstraint("order_date", "customer_id", name="uq_dashboard_priority_orderdate_customer"),
-    )
-
-    customer = relationship("Customer", foreign_keys=[customer_id])
-

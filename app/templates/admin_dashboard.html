@@ -97,7 +97,6 @@
 <table class="min-w-full text-sm">
       <thead class="bg-slate-900/40">
         <tr class="text-slate-300">
-          <th class="text-left px-4 py-3 w-10"></th>
           <th class="text-left px-4 py-3">Εστιατόριο</th>
           <th class="text-left px-4 py-3">Δρομολόγιο</th>
           <th class="text-left px-4 py-3">Ημέρες</th>
@@ -110,15 +109,11 @@
       <tbody>
         {% for s in summaries %}
           {% set c = s.customer %}
-          <tr class="{% if s.completed %}bg-emerald-700/35{% elif s.has_packed %}bg-emerald-700/20{% elif s.has_order %}bg-slate-900/20{% endif %} border-t border-slate-900 sr-draggable-row" data-has-order="{{ 1 if s.has_order else 0 }}"
+          <tr class="{% if s.completed %}bg-emerald-700/35{% elif s.has_packed %}bg-emerald-700/20{% elif s.has_order %}bg-slate-900/20{% endif %} border-t border-slate-900" data-has-order="{{ 1 if s.has_order else 0 }}"
               data-row="customer"
               data-customer-id="{{ c.id }}"
               data-customer-name="{{ (c.name or '')|lower }}"
-              data-customer-afm="{{ (c.afm or '') }}"
-              draggable="true">
-            <td class="px-4 py-3 text-slate-400 align-top">
-              <span class="js-drag-handle inline-flex items-center justify-center w-7 h-7 rounded bg-slate-900/60 border border-slate-800 cursor-grab select-none" title="Drag to reorder">⋮⋮</span>
-            </td>
+              data-customer-afm="{{ (c.afm or '') }}">
             <td class="px-4 py-3 text-slate-100">
               <button type="button" class="toggle-order mr-2 inline-flex items-center justify-center w-7 h-7 rounded bg-slate-800 hover:bg-slate-700 text-slate-100"
                       data-customer-id="{{ c.id }}" data-date="{{ date.isoformat() }}">+</button>
@@ -199,7 +194,7 @@
 </td>
           </tr>
           <tr class="hidden" id="summary-row-{{ c.id }}">
-            <td colspan="8" class="px-4 pb-4">
+            <td colspan="7" class="px-4 pb-4">
               <div id="summary-{{ c.id }}" class="bg-slate-950/30 border border-slate-800 rounded-lg p-4"></div>
             </td>
           </tr>
@@ -1137,103 +1132,4 @@ scheduleMidnightRefresh()
 })();
 </script>
 </script>
-
-<style>
-  .sr-draggable-row.dragging { opacity: .55; }
-  .js-drag-handle { letter-spacing: -2px; }
-  .js-drag-handle:active { cursor: grabbing; }
-  .sr-drop-target { outline: 2px dashed rgba(16,185,129,.55); outline-offset: -2px; }
-</style>
-
-<script>
-(function(){
-  const tbody = document.querySelector('table tbody');
-  if (!tbody) return;
-
-  let draggedRow = null;
-  let allowDrag = false;
-
-  function customerRows(){
-    return Array.from(tbody.querySelectorAll('tr[data-row="customer"]'));
-  }
-
-  function getSummaryRow(row){
-    const cid = row && row.getAttribute('data-customer-id');
-    return cid ? document.getElementById('summary-row-' + cid) : null;
-  }
-
-  function movePairBefore(sourceRow, targetRow){
-    if (!sourceRow || !targetRow || sourceRow === targetRow) return;
-    const sourceSummary = getSummaryRow(sourceRow);
-    tbody.insertBefore(sourceRow, targetRow);
-    if (sourceSummary) {
-      tbody.insertBefore(sourceSummary, sourceRow.nextSibling);
-    }
-  }
-
-  function serializeOrder(){
-    return customerRows().map(row => Number(row.getAttribute('data-customer-id'))).filter(Boolean);
-  }
-
-  async function saveOrder(){
-    const dateInput = document.getElementById('dateInput');
-    const dateStr = dateInput ? dateInput.value : '';
-    const customerIds = serializeOrder();
-    if (!dateStr || !customerIds.length) return;
-    try {
-      const resp = await fetch('/admin/dashboard/save-order', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ date_str: dateStr, customer_ids: customerIds })
-      });
-      const data = await resp.json().catch(() => ({}));
-      if (!resp.ok || !data.ok) throw new Error('save_failed');
-      if (typeof toast === 'function') toast('Αποθηκεύτηκε η νέα προτεραιότητα.', true);
-    } catch (e) {
-      if (typeof toast === 'function') toast('Δεν αποθηκεύτηκε η σειρά.', false);
-    }
-  }
-
-  document.addEventListener('mousedown', function(e){
-    allowDrag = !!e.target.closest('.js-drag-handle');
-  }, true);
-  document.addEventListener('mouseup', function(){ allowDrag = false; }, true);
-
-  customerRows().forEach(function(row){
-    row.addEventListener('dragstart', function(e){
-      if (!allowDrag) {
-        e.preventDefault();
-        return;
-      }
-      draggedRow = row;
-      row.classList.add('dragging');
-      try { e.dataTransfer.effectAllowed = 'move'; } catch (err) {}
-    });
-
-    row.addEventListener('dragend', function(){
-      row.classList.remove('dragging');
-      customerRows().forEach(r => r.classList.remove('sr-drop-target'));
-      draggedRow = null;
-      allowDrag = false;
-    });
-
-    row.addEventListener('dragover', function(e){
-      if (!draggedRow || draggedRow === row) return;
-      e.preventDefault();
-      customerRows().forEach(r => r.classList.remove('sr-drop-target'));
-      row.classList.add('sr-drop-target');
-    });
-
-    row.addEventListener('drop', function(e){
-      if (!draggedRow || draggedRow === row) return;
-      e.preventDefault();
-      customerRows().forEach(r => r.classList.remove('sr-drop-target'));
-      movePairBefore(draggedRow, row);
-      saveOrder();
-    });
-  });
-})();
-</script>
-
 {% endblock %}
