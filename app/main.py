@@ -1459,10 +1459,18 @@ def admin_unlock_order(customer_id: int, request: Request, date_str: str = Form(
     admin = get_admin_username(request)
     if not admin:
         return RedirectResponse(url="/login", status_code=302)
+    date_str = (date_str or "").strip()
+    if not date_str:
+        return RedirectResponse(url=f"/p/{slug}/order?date_required=1", status_code=303)
+
     try:
         d = date.fromisoformat(date_str)
     except ValueError:
-        d = tomorrow_local_date()
+        return RedirectResponse(url=f"/p/{slug}/order?date_required=1", status_code=303)
+
+    today = today_local_date()
+    if d < today:
+        return RedirectResponse(url=f"/p/{slug}/order?date_required=1", status_code=303)
     o = _get_order_for_customer_date(db, customer_id, d)
     if not o:
         return RedirectResponse(url=f"/admin/dashboard?date_str={d.isoformat()}", status_code=302)
@@ -1492,10 +1500,18 @@ def admin_override_unlock(customer_id: int, request: Request, date_str: str = Fo
         except ValueError:
             d = tomorrow_local_date()
         return RedirectResponse(url=f"/admin/dashboard?date_str={d.isoformat()}", status_code=302)
+    date_str = (date_str or "").strip()
+    if not date_str:
+        return RedirectResponse(url=f"/p/{slug}/order?date_required=1", status_code=303)
+
     try:
         d = date.fromisoformat(date_str)
     except ValueError:
-        d = tomorrow_local_date()
+        return RedirectResponse(url=f"/p/{slug}/order?date_required=1", status_code=303)
+
+    today = today_local_date()
+    if d < today:
+        return RedirectResponse(url=f"/p/{slug}/order?date_required=1", status_code=303)
     o = _get_order_for_customer_date(db, customer_id, d)
     if not o:
         return RedirectResponse(url=f"/admin/dashboard?date_str={d.isoformat()}", status_code=302)
@@ -1830,10 +1846,18 @@ async def admin_order_full_post(customer_id: int, request: Request, db: Session 
     action = (form.get("action") or "").strip()
 
     date_str = str(form.get("date_str") or "")
+    date_str = (date_str or "").strip()
+    if not date_str:
+        return RedirectResponse(url=f"/p/{slug}/order?date_required=1", status_code=303)
+
     try:
         d = date.fromisoformat(date_str)
     except ValueError:
-        d = tomorrow_local_date()
+        return RedirectResponse(url=f"/p/{slug}/order?date_required=1", status_code=303)
+
+    today = today_local_date()
+    if d < today:
+        return RedirectResponse(url=f"/p/{slug}/order?date_required=1", status_code=303)
 
     o = _get_order_for_customer_date(db, customer_id, d)
     if not o:
@@ -2418,7 +2442,14 @@ def portal_pin_post(slug: str, request: Request, db: Session = Depends(get_db), 
     return resp
 
 @app.get("/p/{slug}/order", response_class=HTMLResponse)
-def portal_order_get(slug: str, request: Request, db: Session = Depends(get_db), date_str: str | None = None, empty_error: int = 0):
+def portal_order_get(
+    slug: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    date_str: str | None = None,
+    empty_error: int = 0,
+    date_required: int = 0,
+):
     c, canon = _portal_customer_by_slug_or_alias(db, slug)
     if not c:
         raise HTTPException(404)
@@ -2428,17 +2459,17 @@ def portal_order_get(slug: str, request: Request, db: Session = Depends(get_db),
     if get_portal_customer(request) != canon:
         return RedirectResponse(url=f"/p/{slug}", status_code=302)
 
-    d = today_local_date()
+    today = today_local_date()
+    selected_date_raw = ""
+    d = today
     if date_str:
         try:
-            d = date.fromisoformat(date_str)
+            parsed = date.fromisoformat(date_str)
+            if parsed >= today:
+                d = parsed
+                selected_date_raw = parsed.isoformat()
         except ValueError:
             pass
-
-    # block past dates
-    today = today_local_date()
-    if d < today:
-        d = today
 
     cps = db.execute(
         select(CustomerProduct, Product, Unit)
@@ -2448,12 +2479,18 @@ def portal_order_get(slug: str, request: Request, db: Session = Depends(get_db),
         .order_by(Product.name.asc())
     ).all()
 
-    o = db.execute(select(Order).where(Order.customer_id == c.id, Order.order_date == d)).scalar_one_or_none()
-    locked = bool(o and (o.is_locked or o.locked_at is not None))
-    submitted = bool(o and getattr(o, "submitted_at", None) is not None)
-    comment = o.customer_comment if o else ""
+    o = None
+    locked = False
+    submitted = False
+    comment = ""
 
     qty_map = {}
+    if selected_date_raw:
+        o = db.execute(select(Order).where(Order.customer_id == c.id, Order.order_date == d)).scalar_one_or_none()
+        locked = bool(o and (o.is_locked or o.locked_at is not None))
+        submitted = bool(o and getattr(o, "submitted_at", None) is not None)
+        comment = o.customer_comment if o else ""
+
     if o:
         lines = db.execute(select(OrderLine).where(OrderLine.order_id == o.id)).scalars().all()
         for ln in lines:
@@ -2467,7 +2504,7 @@ def portal_order_get(slug: str, request: Request, db: Session = Depends(get_db),
         hos = (
             db.execute(
                 select(Order)
-                .where(Order.customer_id == c.id, Order.order_date != d)
+                .where(Order.customer_id == c.id)
                 .order_by(Order.order_date.desc())
                 .limit(10)
             )
@@ -2517,10 +2554,27 @@ def portal_order_get(slug: str, request: Request, db: Session = Depends(get_db),
     except Exception:
         history_orders = []
 
-    return templates.TemplateResponse("portal_order.html", {"request": request, "customer": c, "date": d, "items": cps, "qty_map": qty_map_disp, "qty_map_disp": qty_map_disp, "locked": locked, "submitted": submitted, "comment": (comment or ""), "history_orders": history_orders, "empty_error": bool(empty_error)})
+    return templates.TemplateResponse(
+        "portal_order.html",
+        {
+            "request": request,
+            "customer": c,
+            "date": d,
+            "selected_date": selected_date_raw,
+            "items": cps,
+            "qty_map": qty_map_disp,
+            "qty_map_disp": qty_map_disp,
+            "locked": locked,
+            "submitted": submitted,
+            "comment": (comment or ""),
+            "history_orders": history_orders,
+            "empty_error": bool(empty_error),
+            "date_required": bool(date_required),
+        },
+    )
 
 @app.post("/p/{slug}/order")
-async def portal_order_post(slug: str, request: Request, db: Session = Depends(get_db), date_str: str = Form(...), comment: str = Form("")):
+async def portal_order_post(slug: str, request: Request, db: Session = Depends(get_db), date_str: str = Form(""), comment: str = Form("")):
     c, canon = _portal_customer_by_slug_or_alias(db, slug)
     if not c:
         raise HTTPException(404)
@@ -2529,10 +2583,18 @@ async def portal_order_post(slug: str, request: Request, db: Session = Depends(g
     if get_portal_customer(request) != canon:
         raise HTTPException(status_code=401)
 
+    date_str = (date_str or "").strip()
+    if not date_str:
+        return RedirectResponse(url=f"/p/{slug}/order?date_required=1", status_code=303)
+
     try:
         d = date.fromisoformat(date_str)
     except ValueError:
-        d = tomorrow_local_date()
+        return RedirectResponse(url=f"/p/{slug}/order?date_required=1", status_code=303)
+
+    today = today_local_date()
+    if d < today:
+        return RedirectResponse(url=f"/p/{slug}/order?date_required=1", status_code=303)
 
     o = db.execute(select(Order).where(Order.customer_id == c.id, Order.order_date == d)).scalar_one_or_none()
     if o and (o.is_locked or o.locked_at is not None):
