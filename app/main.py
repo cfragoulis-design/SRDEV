@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import smtplib
+from email.mime.text import MIMEText
 from datetime import datetime, date, timedelta, time as dtime
 from zoneinfo import ZoneInfo
 
@@ -67,6 +69,12 @@ tz = ZoneInfo(TZ)
 
 # Order cutoff time (HH:MM, local time). Used for automatic locking (order_date - 1 day @ cutoff).
 ORDER_CUTOFF_HHMM = os.getenv("ORDER_CUTOFF_HHMM", "23:59")
+
+SMTP_HOST = os.getenv("SMTP_HOST", "sklavounosmeat.gr")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
+SMTP_USER = os.getenv("SMTP_USER", "info@sklavounosmeat.gr")
+SMTP_PASS = os.getenv("SMTP_PASS", "")
+FROM_EMAIL = os.getenv("FROM_EMAIL", SMTP_USER)
 
 
 def get_cutoff_time() -> tuple[dtime, str]:
@@ -1886,7 +1894,8 @@ async def admin_order_full_post(customer_id: int, request: Request, db: Session 
 def admin_customers(request: Request, db: Session = Depends(get_db)):
     admin_u = require_admin(request)
     customers = db.execute(select(Customer).order_by(Customer.name)).scalars().all()
-    return templates.TemplateResponse("admin_customers.html", {"request": request, "admin_user": admin_u, "customers": customers})
+    msg = (request.query_params.get("msg") or "").strip()
+    return templates.TemplateResponse("admin_customers.html", {"request": request, "admin_user": admin_u, "customers": customers, "msg": msg})
 
 @app.get("/admin/customers/{customer_id}/open-portal")
 def admin_customers_open_portal(customer_id: int, request: Request, db: Session = Depends(get_db)):
@@ -1898,6 +1907,32 @@ def admin_customers_open_portal(customer_id: int, request: Request, db: Session 
     resp.set_cookie("portal_session", sign_session({"c": c.slug}), httponly=True, samesite="lax")
     audit(db, actor=f"admin:{admin_u}", action="customer_open_portal", payload=c.slug)
     return resp
+
+@app.get("/admin/customers/{customer_id}/send-test-email")
+def admin_customers_send_test_email(customer_id: int, request: Request, db: Session = Depends(get_db)):
+    admin_u = require_admin(request)
+    c = db.get(Customer, customer_id)
+    if not c:
+        raise HTTPException(404)
+    target_email = (getattr(c, "email", "") or "").strip()
+    if not target_email:
+        return RedirectResponse(url="/admin/customers?msg=no_email", status_code=302)
+
+    try:
+        msg = MIMEText("Αυτό είναι δοκιμαστικό email από την πλατφόρμα Sklavounos Restaurants.")
+        msg["Subject"] = "Test email from Sklavounos Restaurants"
+        msg["From"] = FROM_EMAIL
+        msg["To"] = target_email
+
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=25) as server:
+            server.login(SMTP_USER, SMTP_PASS)
+            server.send_message(msg)
+
+        audit(db, actor=f"admin:{admin_u}", action="customer_send_test_email", payload=f"{c.slug}:{target_email}")
+        return RedirectResponse(url="/admin/customers?msg=sent", status_code=302)
+    except Exception as e:
+        print("EMAIL ERROR:", repr(e))
+        return RedirectResponse(url="/admin/customers?msg=error", status_code=302)
 
 @app.post("/admin/customers/create")
 def admin_customers_create(request: Request, afm: str = Form(""), db: Session = Depends(get_db), name: str = Form(""), pin: str = Form(...)):
