@@ -75,7 +75,7 @@
             <th class="text-right px-4 py-2">Σύνολο</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody id="dashboardSortableBody" data-date="{{ date.isoformat() }}">
           {% for t in product_totals %}
           <tr class="border-t border-slate-900">
             <td class="px-4 py-2 text-slate-100">{{ t.name }}</td>
@@ -109,7 +109,7 @@
       <tbody>
         {% for s in summaries %}
           {% set c = s.customer %}
-          <tr class="{% if s.completed %}bg-emerald-700/35{% elif s.has_packed %}bg-emerald-700/20{% elif s.has_order %}bg-slate-900/20{% endif %} border-t border-slate-900" data-has-order="{{ 1 if s.has_order else 0 }}"
+          <tr draggable="true" class="dashboard-customer-row {% if s.completed %}bg-emerald-700/35{% elif s.has_packed %}bg-emerald-700/20{% elif s.has_order %}bg-slate-900/20{% endif %} border-t border-slate-900" data-has-order="{{ 1 if s.has_order else 0 }}"
               data-row="customer"
               data-customer-id="{{ c.id }}"
               data-customer-name="{{ (c.name or '')|lower }}"
@@ -117,7 +117,7 @@
             <td class="px-4 py-3 text-slate-100">
               <button type="button" class="toggle-order mr-2 inline-flex items-center justify-center w-7 h-7 rounded bg-slate-800 hover:bg-slate-700 text-slate-100"
                       data-customer-id="{{ c.id }}" data-date="{{ date.isoformat() }}">+</button>
-              <a href="/admin/restaurants/{{ c.id }}/card" class="font-semibold hover:underline">{{ c.name }}</a>
+              <span class="drag-handle mr-2 inline-flex items-center justify-center w-6 h-6 rounded bg-slate-900/60 border border-slate-800 text-slate-400 cursor-move select-none" title="Drag to reorder priority">⋮⋮</span><a href="/admin/restaurants/{{ c.id }}/card" class="font-semibold hover:underline">{{ c.name }}</a>
               {% if (c.afm or '') %}
                 <span class="ml-2 text-xs text-slate-400">ΑΦΜ {{ c.afm }}</span>
               {% endif %}
@@ -215,7 +215,137 @@
     background: transparent;
   }
   .sr-dd-item:hover { background: rgba(255,255,255,0.08); }
+  .dashboard-customer-row.dragging { opacity: .55; }
+  .dashboard-customer-row.drag-over-top { box-shadow: inset 0 3px 0 0 rgba(34,197,94,.95); }
+  .dashboard-customer-row.drag-over-bottom { box-shadow: inset 0 -3px 0 0 rgba(34,197,94,.95); }
+  .drag-handle:hover { color: rgb(226 232 240); border-color: rgb(71 85 105); }
 </style>
+
+<script>
+(function(){
+  const tbody = document.getElementById('dashboardSortableBody');
+  if (!tbody) return;
+
+  let draggedRow = null;
+
+  function getSummaryRow(row){
+    if (!row) return null;
+    const next = row.nextElementSibling;
+    if (next && next.id && next.id.startsWith('summary-row-')) return next;
+    return null;
+  }
+
+  function clearDragMarkers(){
+    tbody.querySelectorAll('.dashboard-customer-row').forEach(function(row){
+      row.classList.remove('drag-over-top', 'drag-over-bottom');
+    });
+  }
+
+  function getCustomerRows(){
+    return Array.from(tbody.querySelectorAll('tr.dashboard-customer-row'));
+  }
+
+  function getDropTarget(clientY){
+    const rows = getCustomerRows().filter(function(row){ return row !== draggedRow; });
+    let target = null;
+    for (const row of rows){
+      const rect = row.getBoundingClientRect();
+      const midpoint = rect.top + rect.height / 2;
+      if (clientY < midpoint){
+        target = {row: row, position: 'before'};
+        break;
+      }
+      target = {row: row, position: 'after'};
+    }
+    return target;
+  }
+
+  async function savePriority(){
+    const customerIds = getCustomerRows().map(function(row){ return parseInt(row.dataset.customerId || '0', 10); }).filter(Boolean);
+    try {
+      const resp = await fetch('/admin/dashboard/save-priority', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        credentials: 'same-origin',
+        body: JSON.stringify({date_str: tbody.dataset.date || '', customer_ids: customerIds})
+      });
+      if (!resp.ok) throw new Error('save_failed');
+      let toast = document.getElementById('sr-drag-toast');
+      if (!toast){
+        toast = document.createElement('div');
+        toast.id = 'sr-drag-toast';
+        toast.style.position = 'fixed';
+        toast.style.right = '16px';
+        toast.style.bottom = '16px';
+        toast.style.zIndex = '9999';
+        toast.style.padding = '10px 12px';
+        toast.style.borderRadius = '12px';
+        toast.style.border = '1px solid rgba(16,185,129,.55)';
+        toast.style.backdropFilter = 'blur(8px)';
+        toast.style.background = 'rgba(2,6,23,.82)';
+        toast.style.color = '#e2e8f0';
+        toast.style.fontSize = '13px';
+        document.body.appendChild(toast);
+      }
+      toast.textContent = 'Η προτεραιότητα αποθηκεύτηκε';
+      toast.style.opacity = '1';
+      clearTimeout(toast._t);
+      toast._t = setTimeout(() => { toast.style.opacity = '0'; }, 1500);
+    } catch (e) {
+      console.error(e);
+      alert('Δεν αποθηκεύτηκε η νέα σειρά.');
+    }
+  }
+
+  tbody.addEventListener('dragstart', function(e){
+    const row = e.target.closest('tr.dashboard-customer-row');
+    if (!row) return;
+    draggedRow = row;
+    row.classList.add('dragging');
+    try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', row.dataset.customerId || ''); } catch(err) {}
+  });
+
+  tbody.addEventListener('dragend', function(){
+    if (draggedRow) draggedRow.classList.remove('dragging');
+    draggedRow = null;
+    clearDragMarkers();
+  });
+
+  tbody.addEventListener('dragover', function(e){
+    if (!draggedRow) return;
+    e.preventDefault();
+    const target = getDropTarget(e.clientY);
+    clearDragMarkers();
+    if (target && target.row){
+      target.row.classList.add(target.position === 'before' ? 'drag-over-top' : 'drag-over-bottom');
+    }
+  });
+
+  tbody.addEventListener('drop', function(e){
+    if (!draggedRow) return;
+    e.preventDefault();
+    const draggedSummary = getSummaryRow(draggedRow);
+    const target = getDropTarget(e.clientY);
+    clearDragMarkers();
+
+    if (!target || !target.row || target.row === draggedRow){
+      return;
+    }
+
+    const targetSummary = getSummaryRow(target.row);
+    if (target.position === 'before') {
+      tbody.insertBefore(draggedRow, target.row);
+      if (draggedSummary) tbody.insertBefore(draggedSummary, target.row);
+    } else {
+      const anchor = targetSummary ? targetSummary.nextSibling : target.row.nextSibling;
+      tbody.insertBefore(draggedRow, anchor);
+      if (draggedSummary) tbody.insertBefore(draggedSummary, anchor);
+    }
+
+    savePriority();
+  });
+})();
+</script>
 
 <script>
 (function(){
@@ -920,6 +1050,7 @@ scheduleMidnightRefresh()
     if (liveBusy) return;
     if (document.hidden) return;
     if (isEditingNow()) return;
+    if (hasOpenSummary()) return;
 
     liveBusy = true;
     try {
@@ -963,62 +1094,11 @@ scheduleMidnightRefresh()
   function isUserEditing(){
     const el = document.activeElement;
     if (!el) return false;
-    // Do not block expanded-summary sync just because a summary is open.
-    // Block only while the user is actively typing in packed inputs.
-    if (el.classList && el.classList.contains('packed-inline')) return true;
+    const tag = (el.tagName || '').toUpperCase();
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
     if (el.isContentEditable) return true;
+    if (el.classList && el.classList.contains('packed-inline')) return true;
     return false;
-  }
-
-  function updateDashboardRowFromSummary(customerId, box){
-    try {
-      const summaryEl = box.querySelector('.order-summary');
-      if (!summaryEl) return;
-
-      const pc = Number(summaryEl.getAttribute('data-packed-count') || '0');
-      const tc = Number(summaryEl.getAttribute('data-total-count') || '0');
-      const hasOrder = tc > 0;
-      const hasPacked = pc > 0;
-      const completed = hasOrder && pc === tc && tc > 0;
-
-      const rowEl = document.querySelector(`tr[data-row="customer"][data-customer-id="${customerId}"]`);
-      if (!rowEl) return;
-
-      rowEl.dataset.hasOrder = hasOrder ? '1' : '0';
-      rowEl.classList.remove('bg-emerald-700/35', 'bg-emerald-700/20', 'bg-slate-900/20');
-      if (completed) rowEl.classList.add('bg-emerald-700/35');
-      else if (hasPacked) rowEl.classList.add('bg-emerald-700/20');
-      else if (hasOrder) rowEl.classList.add('bg-slate-900/20');
-
-      const stCell = rowEl.querySelector('td[data-col="status"]');
-      if (!stCell) return;
-
-      if (!hasOrder) {
-        stCell.innerHTML = `
-          <span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-slate-800 bg-slate-950/30 text-slate-300">
-            <span class="w-2 h-2 rounded-full bg-slate-500"></span>No Order
-          </span>
-        `.trim();
-      } else if (completed) {
-        stCell.innerHTML = `
-          <span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-emerald-800 bg-emerald-900/20 text-emerald-200">
-            <span class="w-2 h-2 rounded-full bg-emerald-400"></span>Completed
-          </span>
-        `.trim();
-      } else if (hasPacked) {
-        stCell.innerHTML = `
-          <span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-emerald-800/70 bg-emerald-900/10 text-emerald-100">
-            <span class="w-2 h-2 rounded-full bg-emerald-300"></span>Packed
-          </span>
-        `.trim();
-      } else {
-        stCell.innerHTML = `
-          <span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-slate-800 bg-slate-950/20 text-slate-200">
-            <span class="w-2 h-2 rounded-full bg-slate-300"></span>Ordered
-          </span>
-        `.trim();
-      }
-    } catch(e) {}
   }
 
   async function fetchSummaryHtml(customerId, dateStr){
@@ -1056,31 +1136,86 @@ scheduleMidnightRefresh()
 
       for (const row of payload.rows) {
         const cid = String(row.customer_id || '');
-        if (!cid) continue;
+         if (!cid) continue;
 
-        const box = qs(`summary-${cid}`);
-        if (!box) continue;
+      const box = qs(`summary-${cid}`);
+      if (!box) continue;
+
+      try {
+      const html = await fetchSummaryHtml(cid, payload.date || dateStr);
+
+          if (box.innerHTML.trim() !== html.trim()) {
+        box.innerHTML = html;
+      }
+
+  } catch (e) {
+    console.warn("summary refresh error", cid);
+  }
+}
 
         if (!row.has_order) {
           window.location.reload();
           return;
         }
 
-        const currentVersion = String(row.summary_hash || row.updated_at || row.version || row.meta_hash || JSON.stringify(row));
-        const prevVersion = String(openSummaryVersionMap.get(cid) || '');
-
-        if (!prevVersion) {
-          openSummaryVersionMap.set(cid, currentVersion);
-          continue;
-        }
-
         if (currentVersion !== prevVersion) {
+          const box = qs(`summary-${cid}`);
+          if (!box) {
+            openSummaryVersionMap.set(cid, currentVersion);
+            continue;
+          }
           try {
             const html = await fetchSummaryHtml(cid, payload.date || dateStr);
-            if (box.innerHTML.trim() !== html.trim()) {
-              box.innerHTML = html;
+            box.innerHTML = html;
+
+            const summaryEl = box.querySelector('.order-summary');
+            if (summaryEl) {
+              const pc = Number(summaryEl.getAttribute('data-packed-count') || '0');
+              const tc = Number(summaryEl.getAttribute('data-total-count') || '0');
+              const hasOrder = tc > 0;
+              const hasPacked = pc > 0;
+              const completed = hasOrder && pc === tc && tc > 0;
+
+              const rowEl = document.querySelector(`tr[data-row="customer"][data-customer-id="${cid}"]`);
+              if (rowEl) {
+                rowEl.dataset.hasOrder = hasOrder ? '1' : '0';
+
+                rowEl.classList.remove('bg-emerald-700/35', 'bg-emerald-700/20', 'bg-slate-900/20');
+                if (completed) rowEl.classList.add('bg-emerald-700/35');
+                else if (hasPacked) rowEl.classList.add('bg-emerald-700/20');
+                else if (hasOrder) rowEl.classList.add('bg-slate-900/20');
+
+                const stCell = rowEl.querySelector('td[data-col="status"]');
+                if (stCell) {
+                  if (!hasOrder) {
+                    stCell.innerHTML = `
+                      <span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-slate-800 bg-slate-950/30 text-slate-300">
+                        <span class="w-2 h-2 rounded-full bg-slate-500"></span>No Order
+                      </span>
+                    `.trim();
+                  } else if (completed) {
+                    stCell.innerHTML = `
+                      <span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-emerald-800 bg-emerald-900/20 text-emerald-200">
+                        <span class="w-2 h-2 rounded-full bg-emerald-400"></span>Completed
+                      </span>
+                    `.trim();
+                  } else if (hasPacked) {
+                    stCell.innerHTML = `
+                      <span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-emerald-800/70 bg-emerald-900/10 text-emerald-100">
+                        <span class="w-2 h-2 rounded-full bg-emerald-300"></span>Packed
+                      </span>
+                    `.trim();
+                  } else {
+                    stCell.innerHTML = `
+                      <span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-slate-800 bg-slate-950/20 text-slate-200">
+                        <span class="w-2 h-2 rounded-full bg-slate-300"></span>Ordered
+                      </span>
+                    `.trim();
+                  }
+                }
+              }
             }
-            updateDashboardRowFromSummary(cid, box);
+
             openSummaryVersionMap.set(cid, currentVersion);
           } catch (e) {}
         }
@@ -1102,34 +1237,17 @@ scheduleMidnightRefresh()
     if (!btn) return;
     const cid = String(btn.getAttribute('data-customer-id') || '');
     if (!cid) return;
-    setTimeout(async function(){
+    setTimeout(function(){
       const row = qs(`summary-row-${cid}`);
       if (!row || row.classList.contains('hidden')) {
         openSummaryVersionMap.delete(cid);
         return;
       }
-
-      const dateInput = qs('dateInput');
-      const dateStr = (dateInput && dateInput.value) ? dateInput.value : '';
-      try {
-        const resp = await fetch('/admin/dashboard/open-summary-status?ids=' + encodeURIComponent(cid) + (dateStr ? '&date_str=' + encodeURIComponent(dateStr) : ''), {
-          credentials: 'same-origin',
-          headers: { 'Accept': 'application/json' }
-        });
-        if (!resp.ok) return;
-        const payload = await resp.json();
-        if (!payload || !payload.ok || !Array.isArray(payload.rows) || !payload.rows.length) return;
-        const meta = payload.rows[0];
-        const currentVersion = String(meta.summary_hash || meta.updated_at || meta.version || meta.meta_hash || JSON.stringify(meta));
-        openSummaryVersionMap.set(cid, currentVersion);
-      } catch (e) {}
-
       refreshChangedOpenSummaries();
     }, 50);
   }, true);
 
   setInterval(refreshChangedOpenSummaries, OPEN_SUMMARY_META_MS);
 })();
-</script>
 </script>
 {% endblock %}
