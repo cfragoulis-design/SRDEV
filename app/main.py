@@ -101,52 +101,6 @@ def today_local_date() -> date:
 def tomorrow_local_date() -> date:
     return (now_local().date() + timedelta(days=1))
 
-def _orthodox_easter_sunday(year: int) -> date:
-    # Meeus/Jones/Butcher algorithm for Orthodox Easter (Gregorian date)
-    a = year % 4
-    b = year % 7
-    c = year % 19
-    d = (19 * c + 15) % 30
-    e = (2 * a + 4 * b - d + 34) % 7
-    month = (d + e + 114) // 31
-    day = ((d + e + 114) % 31) + 1
-    julian_easter = date(year, month, day)
-    return julian_easter + timedelta(days=13)
-
-def _greek_holidays_for_year(year: int) -> set[date]:
-    easter = _orthodox_easter_sunday(year)
-    clean_monday = easter - timedelta(days=48)
-    good_friday = easter - timedelta(days=2)
-    easter_monday = easter + timedelta(days=1)
-    holy_spirit_monday = easter + timedelta(days=50)
-    return {
-        date(year, 1, 1),   # New Year
-        date(year, 1, 6),   # Epiphany
-        date(year, 3, 25),  # Independence Day
-        date(year, 5, 1),   # Labour Day
-        date(year, 8, 15),  # Assumption
-        date(year, 10, 28), # Ohi Day
-        date(year, 12, 25), # Christmas
-        date(year, 12, 26), # Synaxis of the Mother of God
-        clean_monday,
-        good_friday,
-        easter,
-        easter_monday,
-        holy_spirit_monday,
-    }
-
-def _is_blocked_delivery_date(d: date) -> bool:
-    return d.weekday() == 6 or d in _greek_holidays_for_year(d.year)
-
-def _next_allowed_delivery_date(d: date) -> date:
-    cur = d
-    for _ in range(370):
-        if not _is_blocked_delivery_date(cur):
-            return cur
-        cur += timedelta(days=1)
-    return d
-
-
 def audit(db: Session, actor: str, action: str, payload: str = "") -> None:
     db.add(AuditLog(actor=actor, action=action, payload=payload))
     db.commit()
@@ -1938,6 +1892,37 @@ async def admin_order_full_post(customer_id: int, request: Request, db: Session 
 
     return RedirectResponse(url=f"/admin/orders/{customer_id}/full?date_str={d.isoformat()}", status_code=303)
 
+
+
+def _send_brevo_email(target_email: str, subject: str, html_content: str):
+    if not BREVO_API_KEY:
+        return False, "missing_api_key"
+
+    payload = {
+        "sender": {
+            "email": FROM_EMAIL,
+            "name": "Sklavounos Meat"
+        },
+        "to": [{"email": target_email}],
+        "subject": subject,
+        "htmlContent": html_content,
+    }
+
+    headers = {
+        "accept": "application/json",
+        "api-key": BREVO_API_KEY,
+        "content-type": "application/json",
+    }
+
+    response = requests.post(
+        "https://api.brevo.com/v3/smtp/email",
+        json=payload,
+        headers=headers,
+        timeout=20,
+    )
+    return response.status_code in (200, 201), response.text
+
+
 @app.get("/admin/customers", response_class=HTMLResponse)
 def admin_customers(request: Request, db: Session = Depends(get_db)):
     admin_u = require_admin(request)
@@ -1967,48 +1952,85 @@ def admin_customers_send_test_email(customer_id: int, request: Request, db: Sess
     if not target_email:
         return RedirectResponse(url="/admin/customers?msg=no_email", status_code=302)
 
-    if not BREVO_API_KEY:
-        print("BREVO ERROR: Missing BREVO_API_KEY")
-        return RedirectResponse(url="/admin/customers?msg=error", status_code=302)
-
     try:
-        payload = {
-            "sender": {
-                "email": FROM_EMAIL,
-                "name": "Sklavounos Meat"
-            },
-            "to": [
-                {"email": target_email}
-            ],
-            "subject": "Test email from Sklavounos Restaurants",
-            "htmlContent": "<p>Αυτό είναι δοκιμαστικό email από την πλατφόρμα Sklavounos Restaurants.</p>"
-        }
-
-        headers = {
-            "accept": "application/json",
-            "api-key": BREVO_API_KEY,
-            "content-type": "application/json"
-        }
-
-        response = requests.post(
-            "https://api.brevo.com/v3/smtp/email",
-            json=payload,
-            headers=headers,
-            timeout=20
+        ok, info = _send_brevo_email(
+            target_email=target_email,
+            subject="Test email from Sklavounos Restaurants",
+            html_content="<p>Αυτό είναι δοκιμαστικό email από την πλατφόρμα Sklavounos Restaurants.</p>",
         )
-
-        print("BREVO STATUS:", response.status_code)
-        print("BREVO RESPONSE:", response.text)
-
-        if response.status_code in (200, 201):
+        print("BREVO RESPONSE:", info)
+        if ok:
             audit(db, actor=f"admin:{admin_u}", action="customer_send_test_email", payload=f"{c.slug}:{target_email}")
             return RedirectResponse(url="/admin/customers?msg=sent", status_code=302)
-
         return RedirectResponse(url="/admin/customers?msg=error", status_code=302)
-
     except Exception as e:
         print("EMAIL ERROR:", repr(e))
         return RedirectResponse(url="/admin/customers?msg=error", status_code=302)
+
+
+@app.get("/admin/customers/{customer_id}/send-message", response_class=HTMLResponse)
+def admin_customers_send_message_page(customer_id: int, request: Request, db: Session = Depends(get_db)):
+    admin_u = require_admin(request)
+    c = db.get(Customer, customer_id)
+    if not c:
+        raise HTTPException(404)
+    msg = (request.query_params.get("msg") or "").strip()
+    default_subject = "Sklavounos Meat – Ενημέρωση"
+    return templates.TemplateResponse(
+        "admin_customer_send_message.html",
+        {
+            "request": request,
+            "admin_user": admin_u,
+            "customer": c,
+            "msg": msg,
+            "default_subject": default_subject,
+        },
+    )
+
+
+@app.post("/admin/customers/{customer_id}/send-message")
+def admin_customers_send_message_submit(
+    customer_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    subject: str = Form(""),
+    message: str = Form(""),
+):
+    admin_u = require_admin(request)
+    c = db.get(Customer, customer_id)
+    if not c:
+        raise HTTPException(404)
+
+    target_email = (getattr(c, "email", "") or "").strip()
+    if not target_email:
+        return RedirectResponse(url=f"/admin/customers/{customer_id}/send-message?msg=no_email", status_code=302)
+
+    subject_clean = (subject or "").strip() or "Sklavounos Meat – Ενημέρωση"
+    message_clean = (message or "").strip()
+    if not message_clean:
+        return RedirectResponse(url=f"/admin/customers/{customer_id}/send-message?msg=empty_message", status_code=302)
+
+    html_content = f"""
+    <div style="font-family:Arial,Helvetica,sans-serif;line-height:1.6;color:#111827;">
+            <div style="white-space:pre-line;">{message_clean}</div>
+      <p style="margin-top:24px;">Sklavounos Meat</p>
+    </div>
+    """
+
+    try:
+        ok, info = _send_brevo_email(
+            target_email=target_email,
+            subject=subject_clean,
+            html_content=html_content,
+        )
+        print("BREVO RESPONSE:", info)
+        if ok:
+            audit(db, actor=f"admin:{admin_u}", action="customer_send_message", payload=f"{c.slug}:{target_email}:{subject_clean}")
+            return RedirectResponse(url="/admin/customers?msg=message_sent", status_code=302)
+        return RedirectResponse(url=f"/admin/customers/{customer_id}/send-message?msg=error", status_code=302)
+    except Exception as e:
+        print("EMAIL ERROR:", repr(e))
+        return RedirectResponse(url=f"/admin/customers/{customer_id}/send-message?msg=error", status_code=302)
 
 @app.post("/admin/customers/create")
 def admin_customers_create(request: Request, afm: str = Form(""), db: Session = Depends(get_db), name: str = Form(""), pin: str = Form(...)):
@@ -2498,7 +2520,7 @@ def portal_pin_post(slug: str, request: Request, db: Session = Depends(get_db), 
     return resp
 
 @app.get("/p/{slug}/order", response_class=HTMLResponse)
-def portal_order_get(slug: str, request: Request, db: Session = Depends(get_db), date_str: str | None = None, empty_error: int = 0, pwd_msg: str | None = None, pwd_err: str | None = None, date_error: str | None = None):
+def portal_order_get(slug: str, request: Request, db: Session = Depends(get_db), date_str: str | None = None, empty_error: int = 0, pwd_msg: str | None = None, pwd_err: str | None = None):
     c, canon = _portal_customer_by_slug_or_alias(db, slug)
     if not c:
         raise HTTPException(404)
@@ -2519,12 +2541,6 @@ def portal_order_get(slug: str, request: Request, db: Session = Depends(get_db),
     today = today_local_date()
     if d < today:
         d = today
-
-    if _is_blocked_delivery_date(d):
-        original_d = d
-        d = _next_allowed_delivery_date(max(d, today))
-        if not date_error:
-            date_error = f"Η επιλεγμένη ημερομηνία ({original_d.strftime('%d/%m/%Y')}) δεν είναι διαθέσιμη για παραγγελία. Επιλέξτε άλλη ημέρα."
 
     cps = db.execute(
         select(CustomerProduct, Product, Unit)
@@ -2603,9 +2619,7 @@ def portal_order_get(slug: str, request: Request, db: Session = Depends(get_db),
     except Exception:
         history_orders = []
 
-    holiday_dates = sorted({x.isoformat() for y in (d.year, d.year + 1) for x in _greek_holidays_for_year(y)})
-
-    return templates.TemplateResponse("portal_order.html", {"request": request, "customer": c, "date": d, "items": cps, "qty_map": qty_map_disp, "qty_map_disp": qty_map_disp, "locked": locked, "submitted": submitted, "comment": (comment or ""), "history_orders": history_orders, "empty_error": bool(empty_error), "message": pwd_msg, "pwd_error": pwd_err, "date_error": date_error, "holiday_dates": holiday_dates})
+    return templates.TemplateResponse("portal_order.html", {"request": request, "customer": c, "date": d, "items": cps, "qty_map": qty_map_disp, "qty_map_disp": qty_map_disp, "locked": locked, "submitted": submitted, "comment": (comment or ""), "history_orders": history_orders, "empty_error": bool(empty_error), "message": pwd_msg, "pwd_error": pwd_err})
 
 @app.post("/p/{slug}/change-pin")
 def portal_change_pin(
@@ -2659,12 +2673,6 @@ async def portal_order_post(slug: str, request: Request, db: Session = Depends(g
         d = date.fromisoformat(date_str)
     except ValueError:
         d = tomorrow_local_date()
-
-    today = today_local_date()
-    if d < today:
-        d = today
-    if _is_blocked_delivery_date(d):
-        return RedirectResponse(url=f"/p/{slug}/order?date_str={d.isoformat()}&date_error=Η+ημερομηνία+δεν+είναι+διαθέσιμη+για+παραγγελία.", status_code=303)
 
     o = db.execute(select(Order).where(Order.customer_id == c.id, Order.order_date == d)).scalar_one_or_none()
     if o and (o.is_locked or o.locked_at is not None):
