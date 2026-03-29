@@ -3,14 +3,12 @@
 
 <div class="max-w-5xl mx-auto px-4 py-6">
 
-  <!-- DATE FIELD -->
+  <!-- DATE FIELD (NO DEFAULT VALUE) -->
   <div class="mb-4">
     <label class="block text-sm font-medium mb-1">Ημερομηνία Παράδοσης</label>
     <input type="date" name="delivery_date"
            class="border rounded-lg px-3 py-2 w-full">
   </div>
-
-  <!-- εδώ μπαίνουν τα προϊόντα / φόρμα σου κανονικά -->
 
 </div>
 
@@ -48,6 +46,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   if (!dateInput || !modal || !modalDate || !confirmBtn) return;
 
+  // FORCE ALWAYS if empty
   if (!dateInput.value) {
     modal.classList.remove("hidden");
 
