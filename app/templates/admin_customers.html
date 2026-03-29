@@ -34,6 +34,7 @@
           <th class="text-left px-4 py-3">Edit Slug</th>
           <th class="text-left px-4 py-3">Delete</th>
           <th class="text-left px-4 py-3">Portal</th>
+          <th class="text-left px-4 py-3">Open as Customer</th>
           <th class="text-left px-4 py-3">Restaurant Card</th>
           <th class="text-left px-4 py-3">Status</th>
           <th class="text-left px-4 py-3">Rotate PIN</th>
@@ -59,6 +60,9 @@
           </td>
           <td class="px-4 py-3">
             <a class="text-indigo-300 hover:underline" href="/p/{{ c.slug }}" target="_blank">/p/{{ c.slug }}</a>
+          </td>
+          <td class="px-4 py-3">
+            <a class="bg-indigo-600 hover:bg-indigo-500 rounded-xl px-3 py-2 inline-flex text-white" href="/admin/customers/{{ c.id }}/open-portal" target="_blank">Open</a>
           </td>
           <td class="px-4 py-3">
             <a class="bg-slate-900 border border-slate-800 hover:bg-slate-800 rounded-xl px-3 py-2 inline-flex" href="/admin/restaurants/{{ c.id }}">Open</a>
