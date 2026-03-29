@@ -211,34 +211,6 @@ span.flatpickr-weekday,
   </div>
 {% endif %}
 
-<div class="mb-4 bg-slate-900/40 border border-slate-800 rounded-2xl px-4 py-3">
-  <h3 class="text-sm font-semibold text-slate-200 mb-3">Στοιχεία Επικοινωνίας</h3>
-
-  <form method="post" action="/p/{{ customer.slug }}/update-contact" class="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-3xl">
-    <div>
-      <label class="text-sm text-slate-300">Email</label>
-      <input name="email"
-             value="{{ customer.email or '' }}"
-             placeholder="example@email.com"
-             class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white">
-    </div>
-
-    <div>
-      <label class="text-sm text-slate-300">Τηλέφωνο</label>
-      <input name="phone"
-             value="{{ customer.phone or '' }}"
-             placeholder="69XXXXXXXX"
-             class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white">
-    </div>
-
-    <div class="md:col-span-2 flex justify-end">
-      <button class="bg-emerald-600 hover:bg-emerald-500 rounded-lg px-4 py-2 text-sm font-medium">
-        Αποθήκευση στοιχείων
-      </button>
-    </div>
-  </form>
-</div>
-
 <form id="order-form" method="post" action="/p/{{ customer.slug }}/order" class="space-y-4">
   <input type="hidden" name="date_str" value="{{ date.isoformat() }}">
 
@@ -583,65 +555,6 @@ span.flatpickr-weekday,
 
   searchInput.addEventListener('input', applySearch);
 })();
-
-  <script>
-(function() {
-  const emailInput = document.querySelector('input[name="email"]');
-  const phoneInput = document.querySelector('input[name="phone"]');
-  const statusEl = document.getElementById('contact-status');
-
-  if (!emailInput || !phoneInput) return;
-
-  let timer = null;
-
-  function setStatus(txt, color="text-slate-400") {
-    statusEl.className = "text-xs mt-1 " + color;
-    statusEl.textContent = txt;
-  }
-
-  async function saveContact() {
-    const email = emailInput.value.trim();
-    const phone = phoneInput.value.trim();
-
-    const params = new URLSearchParams(window.location.search);
-    const date_str = params.get("date_str") || "";
-
-    setStatus("Αποθήκευση...", "text-yellow-400");
-
-    try {
-      const res = await fetch(`/p/{{ customer.slug }}/update-contact`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: new URLSearchParams({
-          email,
-          phone,
-          date_str
-        })
-      });
-
-      if (res.ok) {
-        setStatus("Αποθηκεύτηκε", "text-emerald-400");
-      } else {
-        setStatus("Σφάλμα", "text-red-400");
-      }
-    } catch (e) {
-      setStatus("Σφάλμα", "text-red-400");
-    }
-  }
-
-  function triggerSave() {
-    clearTimeout(timer);
-    timer = setTimeout(saveContact, 800);
-  }
-
-  emailInput.addEventListener("input", triggerSave);
-  phoneInput.addEventListener("input", triggerSave);
-
-  emailInput.addEventListener("blur", saveContact);
-  phoneInput.addEventListener("blur", saveContact);
-})();
 </script>
 
 
@@ -660,8 +573,6 @@ span.flatpickr-weekday,
     <div id="deliveryDateModalError" class="mt-2 hidden text-sm text-rose-300">
       Παρακαλώ επιλέξτε ημερομηνία.
     </div>
-
-    <div id="contact-status" class="text-xs text-slate-400 mt-1"></div>
 
     <button id="deliveryDateModalConfirm" type="button"
             class="mt-4 w-full rounded-xl bg-emerald-600 px-4 py-2 font-medium text-white hover:bg-emerald-500">
@@ -735,5 +646,66 @@ span.flatpickr-weekday,
   });
 })();
 </script>
+
+
+<script>
+(function() {
+  const emailInput = document.querySelector('input[name="email"]');
+  const phoneInput = document.querySelector('input[name="phone"]');
+  const statusEl = document.getElementById('contact-status');
+
+  if (!emailInput || !phoneInput || !statusEl) return;
+
+  let timer = null;
+
+  function setStatus(txt, color) {
+    statusEl.className = "text-xs mt-1 " + (color || "text-slate-400");
+    statusEl.textContent = txt;
+  }
+
+  async function saveContact() {
+    const email = emailInput.value.trim();
+    const phone = phoneInput.value.trim();
+    const dateInput = document.querySelector('input[name="date_str"]');
+    const date_str = dateInput ? (dateInput.value || "") : "";
+
+    setStatus("Αποθήκευση...", "text-yellow-400");
+
+    try {
+      const res = await fetch(`/p/{{ customer.slug }}/update-contact`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: new URLSearchParams({
+          email,
+          phone,
+          date_str
+        })
+      });
+
+      if (res.ok) {
+        setStatus("Αποθηκεύτηκε", "text-emerald-400");
+      } else {
+        setStatus("Σφάλμα", "text-red-400");
+      }
+    } catch (e) {
+      setStatus("Σφάλμα", "text-red-400");
+    }
+  }
+
+  function triggerSave() {
+    clearTimeout(timer);
+    timer = setTimeout(saveContact, 800);
+  }
+
+  emailInput.addEventListener("input", triggerSave);
+  phoneInput.addEventListener("input", triggerSave);
+
+  emailInput.addEventListener("blur", saveContact);
+  phoneInput.addEventListener("blur", saveContact);
+})();
+</script>
+
 
 {% endblock %}
