@@ -1924,7 +1924,8 @@ def admin_customers_send_test_email(customer_id: int, request: Request, db: Sess
         msg["From"] = FROM_EMAIL
         msg["To"] = target_email
 
-        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=25) as server:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=25) as server:
+            server.starttls()
             server.login(SMTP_USER, SMTP_PASS)
             server.send_message(msg)
 
