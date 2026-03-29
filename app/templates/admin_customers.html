@@ -58,7 +58,10 @@
             </form>
           </td>
           <td class="px-4 py-3">
-            <a class="text-indigo-300 hover:underline" href="/p/{{ c.slug }}" target="_blank">/p/{{ c.slug }}</a>
+            <div class="flex flex-col gap-2 items-start">
+              <a class="text-indigo-300 hover:underline" href="/p/{{ c.slug }}" target="_blank">/p/{{ c.slug }}</a>
+              <a class="bg-slate-900 border border-slate-700 hover:bg-slate-800 rounded-xl px-3 py-2 text-xs" href="/admin/customers/{{ c.id }}/login-as" target="_blank">Open as customer</a>
+            </div>
           </td>
           <td class="px-4 py-3">
             <a class="bg-slate-900 border border-slate-800 hover:bg-slate-800 rounded-xl px-3 py-2 inline-flex" href="/admin/restaurants/{{ c.id }}">Open</a>
