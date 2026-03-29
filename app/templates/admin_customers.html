@@ -8,6 +8,8 @@
 <div class="mb-4 bg-amber-900/30 border border-amber-800 text-amber-200 rounded-2xl px-4 py-3">Ο πελάτης δεν έχει email.</div>
 {% elif msg == "error" %}
 <div class="mb-4 bg-rose-900/30 border border-rose-800 text-rose-200 rounded-2xl px-4 py-3">Η αποστολή email απέτυχε. Δες τα Railway logs.</div>
+{% elif msg == "message_sent" %}
+<div class="mb-4 bg-emerald-900/30 border border-emerald-800 text-emerald-200 rounded-2xl px-4 py-3">Το μήνυμα στάλθηκε επιτυχώς.</div>
 {% endif %}
 
 <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
@@ -44,6 +46,7 @@
           <th class="text-left px-4 py-3">Portal</th>
           <th class="text-left px-4 py-3">Open as Customer</th>
           <th class="text-left px-4 py-3">Send Test Email</th>
+          <th class="text-left px-4 py-3">Send Message</th>
           <th class="text-left px-4 py-3">Restaurant Card</th>
           <th class="text-left px-4 py-3">Status</th>
           <th class="text-left px-4 py-3">Rotate PIN</th>
@@ -75,6 +78,9 @@
           </td>
           <td class="px-4 py-3">
             <a class="bg-slate-900 border border-slate-800 hover:bg-slate-800 rounded-xl px-3 py-2 inline-flex" href="/admin/customers/{{ c.id }}/send-test-email">Send Email</a>
+          </td>
+          <td class="px-4 py-3">
+            <a class="bg-slate-900 border border-slate-800 hover:bg-slate-800 rounded-xl px-3 py-2 inline-flex" href="/admin/customers/{{ c.id }}/send-message">Send Message</a>
           </td>
           <td class="px-4 py-3">
             <a class="bg-slate-900 border border-slate-800 hover:bg-slate-800 rounded-xl px-3 py-2 inline-flex" href="/admin/restaurants/{{ c.id }}">Open</a>

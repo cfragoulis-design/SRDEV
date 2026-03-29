@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block content %}
+{% include "admin_nav.html" %}
+
+{% if msg == "no_email" %}
+<div class="mb-4 bg-amber-900/30 border border-amber-800 text-amber-200 rounded-2xl px-4 py-3">Ο πελάτης δεν έχει email.</div>
+{% elif msg == "missing" %}
+<div class="mb-4 bg-amber-900/30 border border-amber-800 text-amber-200 rounded-2xl px-4 py-3">Συμπλήρωσε θέμα και μήνυμα.</div>
+{% elif msg == "error" %}
+<div class="mb-4 bg-rose-900/30 border border-rose-800 text-rose-200 rounded-2xl px-4 py-3">Η αποστολή email απέτυχε. Δες τα Railway logs.</div>
+{% endif %}
+
+<div class="max-w-3xl mx-auto">
+  <div class="bg-slate-900/40 border border-slate-800 rounded-2xl overflow-hidden">
+    <div class="px-5 py-4 border-b border-slate-800">
+      <div class="text-lg font-semibold">Send Message</div>
+      <div class="text-sm text-slate-400 mt-1">
+        {{ customer.name }}
+        {% if customer.email %}• {{ customer.email }}{% endif %}
+      </div>
+    </div>
+
+    <form method="post" action="/admin/customers/{{ customer.id }}/send-message" class="p-5 space-y-4">
+      <div>
+        <label class="block text-xs text-slate-300 mb-1">To</label>
+        <input type="text" value="{{ customer.email or '' }}" readonly
+               class="w-full bg-slate-950/60 border border-slate-800 rounded-xl px-3 py-2 text-slate-300" />
+      </div>
+
+      <div>
+        <label class="block text-xs text-slate-300 mb-1">Subject</label>
+        <input type="text" name="subject" required
+               class="w-full bg-slate-950/60 border border-slate-800 rounded-xl px-3 py-2 text-slate-100" />
+      </div>
+
+      <div>
+        <label class="block text-xs text-slate-300 mb-1">Message</label>
+        <textarea name="message" rows="10" required
+                  class="w-full bg-slate-950/60 border border-slate-800 rounded-xl px-3 py-2 text-slate-100"></textarea>
+      </div>
+
+      <div class="flex items-center justify-end gap-2">
+        <a href="/admin/customers" class="px-4 py-2 rounded-xl border border-slate-800 bg-slate-950/40 hover:bg-slate-950 text-sm">Back</a>
+        <button type="submit" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-semibold text-sm">Send</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
