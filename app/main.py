@@ -1101,6 +1101,7 @@ def admin_dashboard(request: Request, db: Session = Depends(get_db), date_str: s
         override_note = ""
         order_id = None
         invoiced = False
+        missing_count = 0
 
         if o:
             status = o.status
@@ -1152,6 +1153,9 @@ def admin_dashboard(request: Request, db: Session = Depends(get_db), date_str: s
             elif has_packed_col:
                 has_packed = any((pv is not None and pv > 0) for _, pv in packed_pairs)
 
+            if has_packed_col:
+                missing_count = sum(1 for qv, pv in packed_pairs if qv > 0 and (pv is None or pv <= 0))
+
         if only_ordered and not has_order:
             continue
 
@@ -1169,6 +1173,7 @@ def admin_dashboard(request: Request, db: Session = Depends(get_db), date_str: s
                 "override_note": override_note,
                 "order_id": order_id,
                 "invoiced": invoiced,
+                "missing_count": missing_count,
                 "blocked_day": is_blocked_portal_date(d),
             }
         )
@@ -1275,6 +1280,7 @@ def admin_dashboard_live_status(
         completed = False
         has_packed = False
         invoiced = False
+        missing_count = 0
 
         if o:
             status = o.status
@@ -1322,6 +1328,9 @@ def admin_dashboard_live_status(
             elif has_packed_col:
                 has_packed = any((pv is not None and pv > 0) for _, pv in packed_pairs)
 
+            if has_packed_col:
+                missing_count = sum(1 for qv, pv in packed_pairs if qv > 0 and (pv is None or pv <= 0))
+
         if only_ordered and not has_order:
             continue
 
@@ -1335,6 +1344,7 @@ def admin_dashboard_live_status(
                 "completed": completed,
                 "has_packed": has_packed,
                 "invoiced": invoiced,
+                "missing_count": missing_count,
                 "blocked_day": is_blocked_portal_date(d),
             }
         )
