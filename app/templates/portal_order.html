@@ -136,52 +136,21 @@ span.flatpickr-weekday,
 </div>
 {% endif %}
 
-{% if date_error %}
-<div class="mb-4 bg-rose-900/30 border border-rose-800 text-rose-200 rounded-2xl px-4 py-3">
-  {{ date_error }}
-</div>
-{% endif %}
 
 <script>
+  // Auto change date without locking the portal on locked/submitted days.
+  // Use safe GET redirect with date_str query param.
   (function () {
     const form = document.getElementById('portal-date-form');
     const input = document.getElementById('portal-date');
     if (!form || !input) return;
-
-    const holidayDates = {{ holiday_dates|tojson }};
-
-    function goToDate(val) {
-      const safeVal = (val || '').trim();
-      if (!safeVal) return;
+    input.addEventListener('change', function () {
+      const val = (input.value || '').trim();
+      if (!val) return;
       const url = new URL(form.action, window.location.origin);
-      url.searchParams.set('date_str', safeVal);
+      url.searchParams.set('date_str', val);
       window.location.href = url.toString();
-    }
-
-    if (window.flatpickr) {
-      flatpickr(input, {
-        dateFormat: 'Y-m-d',
-        defaultDate: input.value || null,
-        allowInput: false,
-        disableMobile: true,
-        minDate: 'today',
-        disable: [
-          function(date) {
-            const iso = date.toISOString().slice(0, 10);
-            return date.getDay() === 0 || holidayDates.includes(iso);
-          }
-        ],
-        onChange: function(selectedDates, dateStr) {
-          if (dateStr) goToDate(dateStr);
-        }
-      });
-    } else {
-      input.addEventListener('change', function () {
-        const val = (input.value || '').trim();
-        if (!val) return;
-        goToDate(val);
-      });
-    }
+    });
   })();
 </script>
 
@@ -214,7 +183,7 @@ span.flatpickr-weekday,
         <span>📞</span>
         <span>
           Για οτιδήποτε χρειαστείτε με την παραγγελία επικοινωνήστε στο
-          <a href="tel:6984573330" class="text-white font-semibold">6984573330</a>
+          <a href="tel:6980040472" class="text-white font-semibold">6980040472</a>
         </span>
       </div>
 
@@ -245,6 +214,40 @@ span.flatpickr-weekday,
 <form id="order-form" method="post" action="/p/{{ customer.slug }}/order" class="space-y-4">
   <input type="hidden" name="date_str" value="{{ date.isoformat() }}">
 
+  <div class="bg-slate-900/40 border border-slate-800 rounded-2xl p-4">
+    <div class="flex items-center justify-between gap-3 mb-3">
+      <div>
+        <div class="text-sm text-slate-300">Στοιχεία επικοινωνίας</div>
+        <div class="text-xs text-slate-500">Συμπλήρωσέ τα μία φορά. Αποθηκεύονται αυτόματα.</div>
+      </div>
+      <div id="contact-save-status" class="text-xs text-slate-500" aria-live="polite"></div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div>
+        <label for="portal-phone" class="text-sm text-slate-300">Τηλέφωνο</label>
+        <input
+          id="portal-phone"
+          type="text"
+          value="{{ customer.phone or '' }}"
+          autocomplete="tel"
+          class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white placeholder:text-slate-500 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition"
+          placeholder="π.χ. 69xxxxxxxx"
+          {% if locked or submitted %}disabled{% endif %}>
+      </div>
+      <div>
+        <label for="portal-email" class="text-sm text-slate-300">Email</label>
+        <input
+          id="portal-email"
+          type="email"
+          value="{{ customer.email or '' }}"
+          autocomplete="email"
+          class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white placeholder:text-slate-500 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition"
+          placeholder="π.χ. name@example.com"
+          {% if locked or submitted %}disabled{% endif %}>
+      </div>
+    </div>
+  </div>
 
   <div class="bg-slate-900/40 border border-slate-800 rounded-2xl p-4">
     <label for="portal-search" class="text-sm text-slate-300">Αναζήτηση προϊόντος</label>
@@ -414,6 +417,28 @@ span.flatpickr-weekday,
 
 <script>
 (function(){
+  // Auto-change date without requiring the user to click Go.
+  // Use a safe GET redirect to avoid partial POSTs and never block future dates.
+  const form = document.getElementById('portal-date-form');
+  const dateEl = document.getElementById('portal-date');
+  if (!form || !dateEl) return;
+  dateEl.addEventListener('change', function(){
+    try {
+      if (!dateEl.value) return;
+      const url = new URL(form.getAttribute('action') || window.location.pathname, window.location.origin);
+      url.searchParams.set('date_str', dateEl.value);
+      window.location.href = url.toString();
+    } catch (e) {
+      // Fallback: submit the GET form
+      try { form.submit(); } catch (e2) {}
+    }
+  });
+})();
+</script>
+
+
+<script>
+(function(){
   // Toggle history rows + copy quantities to the current form
   function qs(sel, root){ return (root||document).querySelector(sel); }
   function qsa(sel, root){ return Array.from((root||document).querySelectorAll(sel)); }
@@ -563,6 +588,73 @@ span.flatpickr-weekday,
   }
 
   searchInput.addEventListener('input', applySearch);
+})();
+</script>
+
+
+<script>
+(function(){
+  const phoneEl = document.getElementById('portal-phone');
+  const emailEl = document.getElementById('portal-email');
+  const statusEl = document.getElementById('contact-save-status');
+  if (!phoneEl || !emailEl || !statusEl) return;
+
+  let timer = null;
+  let lastSavedPhone = phoneEl.value || '';
+  let lastSavedEmail = emailEl.value || '';
+  let saveCounter = 0;
+
+  function setStatus(text) {
+    statusEl.textContent = text || '';
+  }
+
+  async function saveNow() {
+    const phone = (phoneEl.value || '').trim();
+    const email = (emailEl.value || '').trim();
+    if (phone === lastSavedPhone && email === lastSavedEmail) {
+      setStatus('');
+      return;
+    }
+
+    saveCounter += 1;
+    const currentSave = saveCounter;
+    setStatus('Αποθήκευση...');
+
+    try {
+      const res = await fetch('/p/{{ customer.slug }}/save-contact', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'fetch'
+        },
+        body: JSON.stringify({ phone: phone, email: email })
+      });
+      if (!res.ok) throw new Error('save_failed');
+      const data = await res.json();
+      if (!data || !data.ok) throw new Error('save_failed');
+      lastSavedPhone = phone;
+      lastSavedEmail = email;
+      if (currentSave === saveCounter) {
+        setStatus('Αποθηκεύτηκε');
+        window.setTimeout(function(){
+          if (statusEl.textContent === 'Αποθηκεύτηκε') setStatus('');
+        }, 1200);
+      }
+    } catch (e) {
+      if (currentSave === saveCounter) setStatus('Δεν αποθηκεύτηκε');
+    }
+  }
+
+  function queueSave() {
+    if (timer) window.clearTimeout(timer);
+    setStatus('');
+    timer = window.setTimeout(saveNow, 700);
+  }
+
+  phoneEl.addEventListener('input', queueSave);
+  emailEl.addEventListener('input', queueSave);
+  phoneEl.addEventListener('blur', saveNow);
+  emailEl.addEventListener('blur', saveNow);
 })();
 </script>
 

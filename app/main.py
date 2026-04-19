@@ -2621,6 +2621,30 @@ def portal_order_get(slug: str, request: Request, db: Session = Depends(get_db),
 
     return templates.TemplateResponse("portal_order.html", {"request": request, "customer": c, "date": d, "items": cps, "qty_map": qty_map_disp, "qty_map_disp": qty_map_disp, "locked": locked, "submitted": submitted, "comment": (comment or ""), "history_orders": history_orders, "empty_error": bool(empty_error), "message": pwd_msg, "pwd_error": pwd_err})
 
+@app.post("/p/{slug}/save-contact")
+async def portal_save_contact(slug: str, request: Request, db: Session = Depends(get_db)):
+    c, canon = _portal_customer_by_slug_or_alias(db, slug)
+    if not c:
+        raise HTTPException(404)
+    if canon != slug:
+        return JSONResponse({"ok": False, "error": "redirect", "slug": canon}, status_code=409)
+    if get_portal_customer(request) != canon:
+        raise HTTPException(status_code=401)
+
+    try:
+        payload = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid_json"}, status_code=400)
+
+    phone = str((payload or {}).get("phone", "") or "").strip()
+    email = str((payload or {}).get("email", "") or "").strip()
+
+    c.phone = phone[:50]
+    c.email = email[:160]
+    db.commit()
+    audit(db, actor=f"portal:{canon}", action="portal_save_contact", payload=f"phone={c.phone}|email={c.email}")
+    return JSONResponse({"ok": True, "phone": c.phone, "email": c.email})
+
 @app.post("/p/{slug}/change-pin")
 def portal_change_pin(
     slug: str,
