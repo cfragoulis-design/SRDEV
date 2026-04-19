@@ -149,6 +149,13 @@
       </span>
     </div>
   {% endif %}
+  {% if s.missing_count and s.missing_count > 0 %}
+    <div class="mt-1">
+      <span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-rose-700 bg-rose-900/20 text-rose-100">
+        <span class="w-2 h-2 rounded-full bg-rose-400"></span>Missing {{ s.missing_count }}
+      </span>
+    </div>
+  {% endif %}
 </td>
             <td class="px-4 py-3" data-col="locked">
   {% if s.locked %}
@@ -172,6 +179,18 @@
             <td class="px-4 py-3 text-slate-300" data-col="comment">{{ s.comment if s.comment else "—" }}</td>
             <td class="px-4 py-3 text-right sr-actions-cell">
   <div class="inline-flex items-center justify-end gap-2">
+    {% if s.order_id %}
+      <form method="post" action="/admin/orders/{{ s.order_id }}/toggle-invoiced" class="inline">
+        <input type="hidden" name="date_str" value="{{ date.isoformat() }}">
+        <input type="hidden" name="from_page" value="dashboard">
+        <button type="submit"
+                class="inline-flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded border {% if s.invoiced %}border-violet-700 bg-violet-900/25 text-violet-100 hover:bg-violet-900/35{% else %}border-slate-700 bg-slate-900/40 text-slate-200 hover:bg-slate-800{% endif %}">
+          <span class="w-2 h-2 rounded-full {% if s.invoiced %}bg-violet-400{% else %}bg-slate-500{% endif %}"></span>
+          {% if s.invoiced %}Τιμολογήθηκε{% else %}Invoice{% endif %}
+        </button>
+      </form>
+    {% endif %}
+
     <a href="/admin/orders/{{ c.id }}/full?date_str={{ date.isoformat() }}&from=dashboard"
        class="bg-slate-800 hover:bg-slate-700 text-slate-100 font-semibold px-3 py-1.5 rounded">
       Open
@@ -866,6 +885,9 @@ scheduleMidnightRefresh()
     }
     if (row.invoiced){
       html += '<div class="mt-1"><span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-violet-700 bg-violet-900/20 text-violet-100"><span class="w-2 h-2 rounded-full bg-violet-400"></span>Τιμολογήθηκε</span></div>';
+    }
+    if (Number(row.missing_count || 0) > 0){
+      html += '<div class="mt-1"><span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-rose-700 bg-rose-900/20 text-rose-100"><span class="w-2 h-2 rounded-full bg-rose-400"></span>Missing ' + Number(row.missing_count || 0) + '</span></div>';
     }
     return html;
   }
