@@ -5,7 +5,9 @@ import smtplib
 import requests
 from email.mime.text import MIMEText
 from datetime import datetime, date, timedelta, time as dtime
+from calendar import monthrange
 from zoneinfo import ZoneInfo
+from urllib.parse import quote_plus
 
 from fastapi import FastAPI, Request, Depends, Form, HTTPException
 from pydantic import BaseModel
@@ -100,6 +102,66 @@ def today_local_date() -> date:
 
 def tomorrow_local_date() -> date:
     return (now_local().date() + timedelta(days=1))
+
+
+def _orthodox_easter_sunday(year: int) -> date:
+    a = year % 4
+    b = year % 7
+    c = year % 19
+    d = (19 * c + 15) % 30
+    e = (2 * a + 4 * b - d + 34) % 7
+    month = (d + e + 114) // 31
+    day = ((d + e + 114) % 31) + 1
+    julian_easter = date(year, month, day)
+    return julian_easter + timedelta(days=13)
+
+
+def greek_holidays(year: int) -> set[date]:
+    easter = _orthodox_easter_sunday(year)
+    return {
+        date(year, 1, 1),
+        date(year, 1, 6),
+        date(year, 3, 25),
+        date(year, 5, 1),
+        date(year, 8, 15),
+        date(year, 10, 28),
+        date(year, 12, 25),
+        date(year, 12, 26),
+        easter - timedelta(days=48),
+        easter - timedelta(days=2),
+        easter + timedelta(days=1),
+        easter + timedelta(days=50),
+    }
+
+
+def is_greek_holiday(d: date) -> bool:
+    return d in greek_holidays(d.year)
+
+
+def is_blocked_portal_date(d: date) -> bool:
+    return d.weekday() == 6 or is_greek_holiday(d)
+
+
+def blocked_portal_reason(d: date) -> str | None:
+    if d.weekday() == 6:
+        return "Δεν γίνονται παραγγελίες για Κυριακή."
+    if is_greek_holiday(d):
+        return "Η επιλεγμένη ημερομηνία είναι επίσημη αργία. Δεν γίνονται παραγγελίες."
+    return None
+
+
+def blocked_dates_for_picker(base_date: date) -> list[str]:
+    years = {base_date.year - 1, base_date.year, base_date.year + 1}
+    out: set[date] = set()
+    for y in years:
+        for m in range(1, 13):
+            last_day = monthrange(y, m)[1]
+            for day in range(1, last_day + 1):
+                dd = date(y, m, day)
+                if is_blocked_portal_date(dd):
+                    out.add(dd)
+    return sorted(x.isoformat() for x in out)
+
 
 def audit(db: Session, actor: str, action: str, payload: str = "") -> None:
     db.add(AuditLog(actor=actor, action=action, payload=payload))
@@ -265,6 +327,9 @@ def ensure_orders_extra_columns() -> None:
             ("locked_at", "TIMESTAMP"),
             ("override_note", "TEXT"),
             ("submitted_at", "TIMESTAMP"),
+            ("is_invoiced", "INTEGER DEFAULT 0"),
+            ("invoiced_by", "VARCHAR(80)"),
+            ("invoiced_at", "TIMESTAMP"),
         ]
     else:
         needed = [
@@ -274,6 +339,9 @@ def ensure_orders_extra_columns() -> None:
             ("locked_at", "TIMESTAMP"),
             ("override_note", "TEXT"),
             ("submitted_at", "TIMESTAMP"),
+            ("is_invoiced", "BOOLEAN DEFAULT FALSE"),
+            ("invoiced_by", "VARCHAR(80)"),
+            ("invoiced_at", "TIMESTAMP"),
         ]
 
     with engine.begin() as conn:
@@ -1032,6 +1100,7 @@ def admin_dashboard(request: Request, db: Session = Depends(get_db), date_str: s
         locked_by = ""
         override_note = ""
         order_id = None
+        invoiced = False
 
         if o:
             status = o.status
@@ -1041,6 +1110,7 @@ def admin_dashboard(request: Request, db: Session = Depends(get_db), date_str: s
             locked_by = (o.locked_by or "")
             override_note = (o.override_note or "")
             order_id = o.id
+            invoiced = bool(getattr(o, "is_invoiced", False))
 
             if has_packed_col:
                 lines = db.execute(select(OrderLine.qty, OrderLine.packed_qty).where(OrderLine.order_id == o.id)).all()
@@ -1098,6 +1168,8 @@ def admin_dashboard(request: Request, db: Session = Depends(get_db), date_str: s
                 "locked_by": locked_by,
                 "override_note": override_note,
                 "order_id": order_id,
+                "invoiced": invoiced,
+                "blocked_day": is_blocked_portal_date(d),
             }
         )
 
@@ -1202,11 +1274,13 @@ def admin_dashboard_live_status(
         comment = ""
         completed = False
         has_packed = False
+        invoiced = False
 
         if o:
             status = o.status
             locked = (o.locked_at is not None) or bool(getattr(o, "is_locked", False))
             comment = o.customer_comment or ""
+            invoiced = bool(getattr(o, "is_invoiced", False))
 
             if has_packed_col:
                 lines = db.execute(
@@ -1260,6 +1334,8 @@ def admin_dashboard_live_status(
                 "comment": comment or "",
                 "completed": completed,
                 "has_packed": has_packed,
+                "invoiced": invoiced,
+                "blocked_day": is_blocked_portal_date(d),
             }
         )
 
@@ -1710,6 +1786,11 @@ def admin_order_full_get(customer_id: int, request: Request, db: Session = Depen
             "qty_map": qty_map,
             "packed_map": packed_map,
             "comment": o.customer_comment or "",
+            "is_blocked_day": is_blocked_portal_date(d),
+            "blocked_day_reason": blocked_portal_reason(d),
+            "is_invoiced": bool(getattr(o, "is_invoiced", False)),
+            "invoiced_by": getattr(o, "invoiced_by", "") or "",
+            "invoiced_at": getattr(o, "invoiced_at", None),
         },
     )
 
@@ -1788,8 +1869,40 @@ def admin_orderline_set_packed_inline(
 
 
 
+@app.post("/admin/orders/{order_id}/toggle-invoiced")
+def admin_order_toggle_invoiced(order_id: int, request: Request, date_str: str = Form(""), from_page: str = Form("dashboard"), db: Session = Depends(get_db)):
+    admin_u = require_admin(request)
+    o = db.get(Order, order_id)
+    if not o:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    new_state = not bool(getattr(o, "is_invoiced", False))
+    setattr(o, "is_invoiced", new_state)
+    if new_state:
+        setattr(o, "invoiced_by", admin_u)
+        setattr(o, "invoiced_at", now_local())
+    else:
+        setattr(o, "invoiced_by", "")
+        setattr(o, "invoiced_at", None)
+    o.updated_at = datetime.utcnow()
+    db.commit()
+    audit(db, actor=f"admin:{admin_u}", action=("order.invoiced" if new_state else "order.uninvoiced"), payload=f"order_id={o.id}")
+
+    target_date = o.order_date.isoformat()
+    if date_str:
+        try:
+            target_date = date.fromisoformat(date_str).isoformat()
+        except ValueError:
+            pass
+
+    if from_page == "full":
+        return RedirectResponse(url=f"/admin/orders/{o.customer_id}/full?date_str={target_date}", status_code=303)
+    return RedirectResponse(url=f"/admin/dashboard?date_str={target_date}", status_code=303)
+
+
 @app.post("/admin/orders/{customer_id}/full")
 async def admin_order_full_post(customer_id: int, request: Request, db: Session = Depends(get_db)):
+
     admin_u = require_admin(request)
     form = await request.form()
 
@@ -2554,6 +2667,8 @@ def portal_order_get(slug: str, request: Request, db: Session = Depends(get_db),
     locked = bool(o and (o.is_locked or o.locked_at is not None))
     submitted = bool(o and getattr(o, "submitted_at", None) is not None)
     comment = o.customer_comment if o else ""
+    blocked_reason = blocked_portal_reason(d)
+    date_blocked = bool(blocked_reason)
 
     qty_map = {}
     if o:
@@ -2619,7 +2734,7 @@ def portal_order_get(slug: str, request: Request, db: Session = Depends(get_db),
     except Exception:
         history_orders = []
 
-    return templates.TemplateResponse("portal_order.html", {"request": request, "customer": c, "date": d, "items": cps, "qty_map": qty_map_disp, "qty_map_disp": qty_map_disp, "locked": locked, "submitted": submitted, "comment": (comment or ""), "history_orders": history_orders, "empty_error": bool(empty_error), "message": pwd_msg, "pwd_error": pwd_err})
+    return templates.TemplateResponse("portal_order.html", {"request": request, "customer": c, "date": d, "items": cps, "qty_map": qty_map_disp, "qty_map_disp": qty_map_disp, "locked": locked, "submitted": submitted, "comment": (comment or ""), "history_orders": history_orders, "empty_error": bool(empty_error), "message": pwd_msg, "pwd_error": pwd_err, "date_blocked": date_blocked, "blocked_reason": blocked_reason, "blocked_dates": blocked_dates_for_picker(d)})
 
 @app.post("/p/{slug}/save-contact")
 async def portal_save_contact(slug: str, request: Request, db: Session = Depends(get_db)):
