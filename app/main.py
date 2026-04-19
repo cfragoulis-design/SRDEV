@@ -1664,9 +1664,13 @@ def admin_order_summary(customer_id: int, request: Request, db: Session = Depend
 
     total_count = len(items)
     packed_count = 0
+    missing_count = 0
     for it in items:
+        qty = float(it.get("qty") or 0)
         pq = it.get("packed_qty")
-        if pq is None:
+        if pq is None or float(pq or 0) <= 0:
+            if qty > 0:
+                missing_count += 1
             continue
         packed_count += 1
 
@@ -1684,6 +1688,7 @@ def admin_order_summary(customer_id: int, request: Request, db: Session = Depend
             "items": items,
             "packed_count": packed_count,
             "total_count": total_count,
+            "missing_count": missing_count,
             "subtotal_disp": _fmt_money(subtotal),
             "vat_disp": _fmt_money(vat),
             "grand_total_disp": _fmt_money(grand_total),

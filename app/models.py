@@ -97,6 +97,9 @@ class Order(Base):
     customer_comment: Mapped[str] = mapped_column(Text, default="")
     locked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    is_invoiced: Mapped[bool] = mapped_column(Boolean, default=False)
+    invoiced_by: Mapped[str] = mapped_column(String(80), default="")
+    invoiced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
