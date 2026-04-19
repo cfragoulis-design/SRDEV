@@ -142,6 +142,13 @@
       <span class="w-2 h-2 rounded-full bg-slate-300"></span>Ordered
     </span>
   {% endif %}
+  {% if s.invoiced %}
+    <div class="mt-1">
+      <span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-violet-700 bg-violet-900/20 text-violet-100">
+        <span class="w-2 h-2 rounded-full bg-violet-400"></span>Τιμολογήθηκε
+      </span>
+    </div>
+  {% endif %}
 </td>
             <td class="px-4 py-3" data-col="locked">
   {% if s.locked %}
@@ -847,16 +854,20 @@ scheduleMidnightRefresh()
   }
 
   function buildStatusHtml(row){
+    let html = '';
     if (!row.has_order){
-      return '<span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-slate-800 bg-slate-950/30 text-slate-300"><span class="w-2 h-2 rounded-full bg-slate-500"></span>No Order</span>';
+      html = '<span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-slate-800 bg-slate-950/30 text-slate-300"><span class="w-2 h-2 rounded-full bg-slate-500"></span>No Order</span>';
+    } else if (row.completed){
+      html = '<span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-emerald-800 bg-emerald-900/20 text-emerald-200"><span class="w-2 h-2 rounded-full bg-emerald-400"></span>Completed</span>';
+    } else if (row.has_packed){
+      html = '<span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-emerald-800/70 bg-emerald-900/10 text-emerald-100"><span class="w-2 h-2 rounded-full bg-emerald-300"></span>Packed</span>';
+    } else {
+      html = '<span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-slate-800 bg-slate-950/20 text-slate-200"><span class="w-2 h-2 rounded-full bg-slate-300"></span>Ordered</span>';
     }
-    if (row.completed){
-      return '<span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-emerald-800 bg-emerald-900/20 text-emerald-200"><span class="w-2 h-2 rounded-full bg-emerald-400"></span>Completed</span>';
+    if (row.invoiced){
+      html += '<div class="mt-1"><span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-violet-700 bg-violet-900/20 text-violet-100"><span class="w-2 h-2 rounded-full bg-violet-400"></span>Τιμολογήθηκε</span></div>';
     }
-    if (row.has_packed){
-      return '<span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-emerald-800/70 bg-emerald-900/10 text-emerald-100"><span class="w-2 h-2 rounded-full bg-emerald-300"></span>Packed</span>';
-    }
-    return '<span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-slate-800 bg-slate-950/20 text-slate-200"><span class="w-2 h-2 rounded-full bg-slate-300"></span>Ordered</span>';
+    return html;
   }
 
   function buildLockedHtml(customerId, dateStr, row){
