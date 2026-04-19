@@ -109,10 +109,11 @@
       <tbody>
         {% for s in summaries %}
           {% set c = s.customer %}
-          <tr class="{% if s.completed %}bg-emerald-700/35{% elif s.has_packed %}bg-emerald-700/20{% elif s.has_order %}bg-slate-900/20{% endif %} border-t border-slate-900" data-has-order="{{ 1 if s.has_order else 0 }}"
+          <tr class="{% if s.missing_count and s.missing_count > 0 %}bg-rose-900/20 border-l-2 border-l-rose-500{% elif s.completed %}bg-emerald-700/35{% elif s.has_packed %}bg-emerald-700/20{% elif s.has_order %}bg-slate-900/20{% endif %} border-t border-slate-900" data-has-order="{{ 1 if s.has_order else 0 }}"
               data-row="customer"
               data-customer-id="{{ c.id }}"
               data-customer-name="{{ (c.name or '')|lower }}"
+              data-invoiced="{{ 1 if s.invoiced else 0 }}"
               data-customer-afm="{{ (c.afm or '') }}">
             <td class="px-4 py-3 text-slate-100">
               <button type="button" class="toggle-order mr-2 inline-flex items-center justify-center w-7 h-7 rounded bg-slate-800 hover:bg-slate-700 text-slate-100"
@@ -601,6 +602,7 @@ if (expandAllInput){
           if (summaryEl) {
             const pc = Number(summaryEl.getAttribute('data-packed-count') || '0');
             const tc = Number(summaryEl.getAttribute('data-total-count') || '0');
+            const missing = Number(summaryEl.getAttribute('data-missing-count') || '0');
             const hasOrder = tc > 0;
             const hasPacked = pc > 0;
             const completed = hasOrder && (pc === tc) && tc > 0;
@@ -611,39 +613,48 @@ if (expandAllInput){
               row.dataset.hasOrder = hasOrder ? '1' : '0';
 
               // Row background
-              row.classList.remove('bg-emerald-700/35', 'bg-emerald-700/20', 'bg-slate-900/20');
-              if (completed) row.classList.add('bg-emerald-700/35');
+              row.classList.remove('bg-rose-900/20', 'border-l-2', 'border-l-rose-500', 'bg-emerald-700/35', 'bg-emerald-700/20', 'bg-slate-900/20');
+              if (Number(missing || 0) > 0) { row.classList.add('bg-rose-900/20', 'border-l-2', 'border-l-rose-500'); }
+              else if (completed) row.classList.add('bg-emerald-700/35');
               else if (hasPacked) row.classList.add('bg-emerald-700/20');
               else if (hasOrder) row.classList.add('bg-slate-900/20');
 
               // Status badge
               const stCell = row.querySelector('td[data-col="status"]');
               if (stCell) {
+                let statusHtml = '';
                 if (!hasOrder) {
-                  stCell.innerHTML = `
+                  statusHtml = `
                     <span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-slate-800 bg-slate-950/30 text-slate-300">
                       <span class="w-2 h-2 rounded-full bg-slate-500"></span>No Order
                     </span>
                   `.trim();
                 } else if (completed) {
-                  stCell.innerHTML = `
+                  statusHtml = `
                     <span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-emerald-800 bg-emerald-900/20 text-emerald-200">
                       <span class="w-2 h-2 rounded-full bg-emerald-400"></span>Completed
                     </span>
                   `.trim();
                 } else if (hasPacked) {
-                  stCell.innerHTML = `
+                  statusHtml = `
                     <span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-emerald-800/70 bg-emerald-900/10 text-emerald-100">
                       <span class="w-2 h-2 rounded-full bg-emerald-300"></span>Packed
                     </span>
                   `.trim();
                 } else {
-                  stCell.innerHTML = `
+                  statusHtml = `
                     <span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-slate-800 bg-slate-950/20 text-slate-200">
                       <span class="w-2 h-2 rounded-full bg-slate-300"></span>Ordered
                     </span>
                   `.trim();
                 }
+                if (Number(row.dataset.invoiced || '0') > 0) {
+                  statusHtml += `<div class="mt-1"><span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-violet-700 bg-violet-900/20 text-violet-100"><span class="w-2 h-2 rounded-full bg-violet-400"></span>Τιμολογήθηκε</span></div>`;
+                }
+                if (missing > 0) {
+                  statusHtml += `<div class="mt-1"><span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-rose-700 bg-rose-900/20 text-rose-100"><span class="w-2 h-2 rounded-full bg-rose-400"></span>Missing ${missing}</span></div>`;
+                }
+                stCell.innerHTML = statusHtml;
               }
             }
           }
@@ -907,7 +918,8 @@ scheduleMidnightRefresh()
 
   function buildRowClass(row){
     let out = 'border-t border-slate-900';
-    if (row.completed) out = 'bg-emerald-700/35 ' + out;
+    if (Number(row.missing_count || 0) > 0) out = 'bg-rose-900/20 border-l-2 border-l-rose-500 ' + out;
+    else if (row.completed) out = 'bg-emerald-700/35 ' + out;
     else if (row.has_packed) out = 'bg-emerald-700/20 ' + out;
     else if (row.has_order) out = 'bg-slate-900/20 ' + out;
     return out;
@@ -937,6 +949,7 @@ scheduleMidnightRefresh()
 
       tr.className = buildRowClass(row);
       tr.setAttribute('data-has-order', row.has_order ? '1' : '0');
+      tr.setAttribute('data-invoiced', row.invoiced ? '1' : '0');
 
       const statusCell = tr.querySelector('[data-col="status"]');
       if (statusCell) statusCell.innerHTML = buildStatusHtml(row);
@@ -1018,8 +1031,9 @@ scheduleMidnightRefresh()
       if (!rowEl) return;
 
       rowEl.dataset.hasOrder = hasOrder ? '1' : '0';
-      rowEl.classList.remove('bg-emerald-700/35', 'bg-emerald-700/20', 'bg-slate-900/20');
-      if (completed) rowEl.classList.add('bg-emerald-700/35');
+      rowEl.classList.remove('bg-rose-900/20', 'border-l-2', 'border-l-rose-500', 'bg-emerald-700/35', 'bg-emerald-700/20', 'bg-slate-900/20');
+      if (Number(row.missing_count || 0) > 0) rowEl.classList.add('bg-rose-900/20', 'border-l-2', 'border-l-rose-500');
+      else if (completed) rowEl.classList.add('bg-emerald-700/35');
       else if (hasPacked) rowEl.classList.add('bg-emerald-700/20');
       else if (hasOrder) rowEl.classList.add('bg-slate-900/20');
 
