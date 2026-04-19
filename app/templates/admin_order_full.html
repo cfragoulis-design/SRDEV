@@ -136,7 +136,7 @@
                   min="0"
                   data-pid="{{ p.id }}"
                   data-unit="{{ it.unit_code }}"
-                 {% if (line.packed_qty or 0) <= 0 and line.ordered_qty > 0 %}style="border:1px solid #ef4444;background:rgba(239,68,68,0.12);color:#fca5a5;"{% endif %}>
+                >
                 <span class="text-xs rounded-full px-2 py-1 border border-slate-700 text-slate-300 diff-badge" data-diff="{{ p.id }}">–</span>
               </div>
             </td>
