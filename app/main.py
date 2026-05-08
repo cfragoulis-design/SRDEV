@@ -2955,6 +2955,15 @@ async def portal_order_post(slug: str, request: Request, db: Session = Depends(g
     else:
         msg_parts.append(f"Items: {total_items}")
 
+    # Send the submitted/edited order by email to the store/customer email saved on the customer card.
+    try:
+        ok, info = _send_order_email_to_customer(c, o, d, lines, is_edit=is_portal_edit)
+        print("ORDER EMAIL RESPONSE:", ok, info)
+        audit(db, actor=f"portal:{slug}", action=("order_edit_email" if is_portal_edit else "order_submit_email"), payload=f"{d.isoformat()} ok={ok} info={str(info)[:300]}")
+    except Exception as exc:
+        print("ORDER EMAIL ERROR:", repr(exc))
+        audit(db, actor=f"portal:{slug}", action="order_email_error", payload=f"{d.isoformat()} {repr(exc)[:300]}")
+
     send_telegram("\n".join(msg_parts))
     return RedirectResponse(url=f"/p/{slug}/order?date_str={d.isoformat()}", status_code=302)
 
