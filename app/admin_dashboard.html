@@ -887,13 +887,9 @@ scheduleMidnightRefresh()
     const sameRows = currentIds.length === incomingIds.length && currentIds.every((id, idx) => id === incomingIds[idx]);
 
     if (!sameRows){
-      if (!document.hidden && !isEditingNow() && !hasOpenSummary()){
-        window.location.reload();
-        return;
-      }
-      showRefreshNotice('Νέα παραγγελία ή αλλαγή λίστας. Πάτα refresh.');
+      showRefreshNotice('Νέα παραγγελία ή αλλαγή. Πάτα refresh.');
       return;
-    }
+      }
 
     clearRefreshNotice();
 

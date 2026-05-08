@@ -21,6 +21,11 @@
           <input id="expandAllInput" type="checkbox" class="rounded border-slate-600 bg-slate-900">
           <span>Expand all</span>
         </label>
+
+        <label class="flex items-center gap-2 text-slate-300 text-sm ml-2 select-none cursor-pointer">
+          <input id="hideCompletedInput" type="checkbox" class="rounded border-slate-600 bg-slate-900">
+          <span>Hide completed</span>
+        </label>
       </form>
 
       <input id="customerSearch" type="text" placeholder="Search customer (Name / ΑΦΜ)" class="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-slate-100 w-[260px] max-w-full">
@@ -101,7 +106,7 @@
           <th class="text-left px-4 py-3">Δρομολόγιο</th>
           <th class="text-left px-4 py-3">Ημέρες</th>
           <th class="text-left px-4 py-3">Status</th>
-          <th class="text-left px-4 py-3">Locked</th>
+          <th class="text-left px-4 py-3">Locked / Invoice</th>
           <th class="text-left px-4 py-3">Σχόλιο</th>
           <th class="text-right px-4 py-3">Actions</th>
         </tr>
@@ -109,19 +114,23 @@
       <tbody>
         {% for s in summaries %}
           {% set c = s.customer %}
-          <tr class="{% if s.missing_count and s.missing_count > 0 %}bg-rose-900/20 border-l-2 border-l-rose-500{% elif s.completed %}bg-emerald-700/35{% elif s.has_packed %}bg-emerald-700/20{% elif s.has_order %}bg-slate-900/20{% endif %} border-t border-slate-900" data-has-order="{{ 1 if s.has_order else 0 }}"
+          <tr class="{% if s.priority %}sr-priority-row {% endif %}{% if s.completed %}bg-emerald-700/35{% elif s.has_packed %}bg-emerald-700/20{% elif s.has_order %}bg-slate-900/20{% endif %} border-t border-slate-900" data-has-order="{{ 1 if s.has_order else 0 }}"
               data-row="customer"
               data-customer-id="{{ c.id }}"
               data-customer-name="{{ (c.name or '')|lower }}"
-              data-invoiced="{{ 1 if s.invoiced else 0 }}"
-              data-customer-afm="{{ (c.afm or '') }}">
+              data-customer-afm="{{ (c.afm or '') }}"
+              data-completed="{{ 1 if s.completed else 0 }}"
+              data-priority="{{ s.priority or 0 }}">
             <td class="px-4 py-3 text-slate-100">
-              <button type="button" class="toggle-order mr-2 inline-flex items-center justify-center w-7 h-7 rounded bg-slate-800 hover:bg-slate-700 text-slate-100"
-                      data-customer-id="{{ c.id }}" data-date="{{ date.isoformat() }}">+</button>
-              <a href="/admin/restaurants/{{ c.id }}/card" class="font-semibold hover:underline">{{ c.name }}</a>
-              {% if (c.afm or '') %}
-                <span class="ml-2 text-xs text-slate-400">ΑΦΜ {{ c.afm }}</span>
-              {% endif %}
+              <div class="flex items-center gap-2">
+                <button type="button" class="toggle-order inline-flex items-center justify-center w-7 h-7 rounded bg-slate-800 hover:bg-slate-700 text-slate-100"
+                        data-customer-id="{{ c.id }}" data-date="{{ date.isoformat() }}">+</button>
+                <a href="/admin/restaurants/{{ c.id }}/card" class="font-semibold hover:underline">{{ c.name }}</a>
+                <span data-col="priority-badge" class="{% if s.priority %}inline-flex{% else %}hidden{% endif %} items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border border-rose-700/70 bg-rose-900/30 text-rose-200 uppercase tracking-wide">Priority</span>
+                {% if (c.afm or '') %}
+                  <span class="ml-1 text-xs text-slate-400">ΑΦΜ {{ c.afm }}</span>
+                {% endif %}
+              </div>
             </td>
             <td class="px-4 py-3 text-slate-300">{{ c.area_route or "—" }}</td>
             <td class="px-4 py-3 text-slate-300">{{ c.delivery_days_str }}</td>
@@ -143,53 +152,47 @@
       <span class="w-2 h-2 rounded-full bg-slate-300"></span>Ordered
     </span>
   {% endif %}
-  {% if s.invoiced %}
-    <div class="mt-1">
-      <span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-violet-700 bg-violet-900/20 text-violet-100">
-        <span class="w-2 h-2 rounded-full bg-violet-400"></span>Τιμολογήθηκε
-      </span>
-    </div>
-  {% endif %}
-  {% if s.missing_count and s.missing_count > 0 %}
-    <div class="mt-1">
-      <span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-rose-700 bg-rose-900/20 text-rose-100">
-        <span class="w-2 h-2 rounded-full bg-rose-400"></span>Missing {{ s.missing_count }}
-      </span>
-    </div>
-  {% endif %}
 </td>
             <td class="px-4 py-3" data-col="locked">
-  {% if s.locked %}
-    <form method="post" action="/admin/orders/{{ c.id }}/unlock" class="inline">
-      <input type="hidden" name="date_str" value="{{ date.isoformat() }}">
-      <button type="submit"
-              class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-amber-800 bg-amber-900/15 text-amber-200 hover:bg-amber-900/25 cursor-pointer">
-        <span class="w-2 h-2 rounded-full bg-amber-400"></span>Locked
-      </button>
-    </form>
-  {% else %}
-    <form method="post" action="/admin/orders/{{ c.id }}/lock" class="inline">
-      <input type="hidden" name="date_str" value="{{ date.isoformat() }}">
-      <button type="submit"
-              class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-slate-800 bg-slate-950/20 text-slate-300 hover:bg-slate-900/30 cursor-pointer">
-        <span class="w-2 h-2 rounded-full bg-slate-500"></span>—
-      </button>
-    </form>
-  {% endif %}
+  <div class="inline-flex items-center gap-2 flex-wrap">
+    {% if s.locked %}
+      <form method="post" action="/admin/orders/{{ c.id }}/unlock" class="inline">
+        <input type="hidden" name="date_str" value="{{ date.isoformat() }}">
+        <button type="submit"
+                class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-amber-800 bg-amber-900/15 text-amber-200 hover:bg-amber-900/25 cursor-pointer">
+          <span class="w-2 h-2 rounded-full bg-amber-400"></span>Locked
+        </button>
+      </form>
+    {% else %}
+      <form method="post" action="/admin/orders/{{ c.id }}/lock" class="inline">
+        <input type="hidden" name="date_str" value="{{ date.isoformat() }}">
+        <button type="submit"
+                class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-slate-800 bg-slate-950/20 text-slate-300 hover:bg-slate-900/30 cursor-pointer">
+          <span class="w-2 h-2 rounded-full bg-slate-500"></span>—
+        </button>
+      </form>
+    {% endif %}
+
+    {% if s.order_id %}
+      <button type="button"
+          class="js-invoice-toggle inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border {% if s.invoiced %}border-sky-700 bg-sky-900/20 text-sky-200 hover:bg-sky-900/30{% else %}border-rose-500/50 bg-rose-500/10 text-rose-300 hover:bg-rose-500/15{% endif %} cursor-pointer"
+          data-order-id="{{ s.order_id }}"
+          data-invoiced="{{ 1 if s.invoiced else 0 }}"
+          title="Toggle invoiced status">
+      <span class="w-2 h-2 rounded-full {% if s.invoiced %}bg-sky-400{% else %}bg-rose-400{% endif %}"></span>{% if s.invoiced %}Invoiced{% else %}Pending{% endif %}
+    </button>
+    {% endif %}
+  </div>
 </td>
             <td class="px-4 py-3 text-slate-300" data-col="comment">{{ s.comment if s.comment else "—" }}</td>
             <td class="px-4 py-3 text-right sr-actions-cell">
   <div class="inline-flex items-center justify-end gap-2">
     {% if s.order_id %}
-      <form method="post" action="/admin/orders/{{ s.order_id }}/toggle-invoiced" class="inline">
-        <input type="hidden" name="date_str" value="{{ date.isoformat() }}">
-        <input type="hidden" name="from_page" value="dashboard">
-        <button type="submit"
-                class="inline-flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded border {% if s.invoiced %}border-violet-700 bg-violet-900/25 text-violet-100 hover:bg-violet-900/35{% else %}border-slate-700 bg-slate-900/40 text-slate-200 hover:bg-slate-800{% endif %}">
-          <span class="w-2 h-2 rounded-full {% if s.invoiced %}bg-violet-400{% else %}bg-slate-500{% endif %}"></span>
-          {% if s.invoiced %}Τιμολογήθηκε{% else %}Invoice{% endif %}
-        </button>
-      </form>
+      <button type="button"
+              class="js-priority-toggle w-11 h-8 inline-flex items-center justify-center rounded {% if s.priority %}bg-rose-700/80 hover:bg-rose-600 border-rose-500/70 text-white{% else %}bg-slate-900/60 hover:bg-slate-800 border-slate-800 text-slate-200{% endif %} border font-semibold text-xs"
+              title="Toggle priority"
+              data-order-id="{{ s.order_id }}"
+              data-priority="{{ s.priority or 0 }}">P1</button>
     {% endif %}
 
     <a href="/admin/orders/{{ c.id }}/full?date_str={{ date.isoformat() }}&from=dashboard"
@@ -232,7 +235,8 @@
 </div>
 
 <style>
-  .sr-actions-cell { width: 190px; white-space: nowrap; }
+  .sr-actions-cell { width: 250px; white-space: nowrap; }
+  .sr-priority-row td:first-child { box-shadow: inset 4px 0 0 rgba(244,63,94,.95); }
   .sr-dd.open .sr-dd-menu { display: block; }
   .sr-dd-item {
     padding: 8px 10px;
@@ -322,6 +326,7 @@
   const form = qs('dateForm');
   const dateInput = document.querySelector('input[type="date"]');
   const showAllInput = qs('showAllInput');
+  const hideCompletedInput = qs('hideCompletedInput');
   const customerSearch = qs('customerSearch');
   const phoneAfm = qs('phoneAfm');
   const phoneOrderBtn = qs('phoneOrderBtn');
@@ -376,21 +381,31 @@
 
   if (dateInput) dateInput.addEventListener('change', autoSubmit);
 
-  // Search filter (name / AFM)
-  function applySearchFilter(){
-    if (!customerSearch) return;
-    const q = (customerSearch.value || '').trim().toLowerCase();
+  const HIDE_COMPLETED_KEY = 'sr_dash_hide_completed';
+
+  function applyDashboardFilters(){
+    const q = customerSearch ? (customerSearch.value || '').trim().toLowerCase() : '';
+    const hideCompleted = !!(hideCompletedInput && hideCompletedInput.checked);
     const rows = document.querySelectorAll('tr[data-row="customer"]');
     rows.forEach((r) => {
       const name = (r.getAttribute('data-customer-name') || '');
       const afm = (r.getAttribute('data-customer-afm') || '');
-      const show = !q || name.includes(q) || afm.includes(q);
+      const completed = String(r.getAttribute('data-completed') || '0') === '1';
+      const matchSearch = !q || name.includes(q) || afm.includes(q);
+      const show = matchSearch && !(hideCompleted && completed);
       r.style.display = show ? '' : 'none';
-      const details = document.getElementById('details-' + r.getAttribute('data-customer-id'));
-      if (details && !show) details.style.display = 'none';
+      const summaryRow = document.getElementById('summary-row-' + r.getAttribute('data-customer-id'));
+      if (!show && summaryRow) summaryRow.classList.add('hidden');
     });
   }
-  if (customerSearch) customerSearch.addEventListener('input', applySearchFilter);
+  if (customerSearch) customerSearch.addEventListener('input', applyDashboardFilters);
+  if (hideCompletedInput) {
+    try { hideCompletedInput.checked = (localStorage.getItem(HIDE_COMPLETED_KEY) || '0') === '1'; } catch(e) {}
+    hideCompletedInput.addEventListener('change', function(){
+      try { localStorage.setItem(HIDE_COMPLETED_KEY, hideCompletedInput.checked ? '1' : '0'); } catch(e) {}
+      applyDashboardFilters();
+    });
+  }
 
   // Phone order -> open Full Order for that customer for selected date.
   if (phoneOrderBtn) {
@@ -527,8 +542,77 @@ if (expandAllInput){
   });
 }
 
+setTimeout(() => { applyDashboardFilters(); }, 0);
+
+  async function togglePriority(btn){
+    const orderId = btn.getAttribute('data-order-id');
+    if (!orderId) return;
+    const current = Number(btn.getAttribute('data-priority') || '0');
+    const next = current > 0 ? 0 : 1;
+    const fd = new FormData();
+    fd.append('priority', String(next));
+    btn.disabled = true;
+    btn.style.opacity = '0.7';
+    try {
+      const resp = await fetch('/admin/orders/' + encodeURIComponent(orderId) + '/priority', {
+        method: 'POST',
+        body: fd,
+        credentials: 'same-origin'
+      });
+      if (!resp.ok) throw new Error('priority failed');
+      window.location.reload();
+    } catch (e) {
+      toast('Priority update failed', false);
+      btn.disabled = false;
+      btn.style.opacity = '1';
+    }
+  }
 
 
+  function updateInvoiceButton(btn, invoiced){
+  if (!btn) return;
+  btn.setAttribute('data-invoiced', invoiced ? '1' : '0');
+  btn.className = 'js-invoice-toggle inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border cursor-pointer ' + (invoiced ? 'border-sky-700 bg-sky-900/20 text-sky-200 hover:bg-sky-900/30' : 'border-rose-500/50 bg-rose-500/10 text-rose-300 hover:bg-rose-500/15');
+  btn.innerHTML = '<span class="w-2 h-2 rounded-full ' + (invoiced ? 'bg-sky-400' : 'bg-rose-500') + '"></span>' + (invoiced ? 'Invoiced' : 'Pending');
+  }
+
+  async function toggleInvoice(btn){
+    const orderId = btn.getAttribute('data-order-id');
+    if (!orderId) return;
+    btn.disabled = true;
+    btn.style.opacity = '0.7';
+    try {
+      const resp = await fetch('/admin/orders/' + encodeURIComponent(orderId) + '/invoice-toggle', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Accept': 'application/json' }
+      });
+      if (!resp.ok) throw new Error('invoice failed');
+      const data = await resp.json();
+      if (!data || !data.ok) throw new Error('invoice failed');
+      updateInvoiceButton(btn, Number(data.is_invoiced || 0) > 0);
+      toast(Number(data.is_invoiced || 0) > 0 ? 'Marked as invoiced' : 'Invoice status cleared', true);
+    } catch (e) {
+      toast('Invoice update failed', false);
+    } finally {
+      btn.disabled = false;
+      btn.style.opacity = '1';
+    }
+  }
+
+  document.addEventListener('click', function(e){
+    const btn = e.target.closest('.js-priority-toggle');
+    if (!btn) return;
+    e.preventDefault();
+    togglePriority(btn);
+  });
+
+  document.addEventListener('click', function(e){
+    const btn = e.target.closest('.js-invoice-toggle');
+    if (!btn) return;
+    e.preventDefault();
+    toggleInvoice(btn);
+  });
 
   // Inline Packed Qty editing (autosave) inside expanded dashboard rows
   const __packedTimers = new Map();
@@ -547,6 +631,7 @@ if (expandAllInput){
         clearTimeout(st.__t || 0);
         st.__t = setTimeout(() => { st.textContent = ''; st.classList.remove('text-emerald-300','text-rose-300'); st.classList.add('text-slate-500'); }, 1200);
       }
+      try { if (typeof applyDashboardFilters === 'function') applyDashboardFilters(); } catch(e) {}
     } catch(e) {}
   }
 
@@ -602,7 +687,6 @@ if (expandAllInput){
           if (summaryEl) {
             const pc = Number(summaryEl.getAttribute('data-packed-count') || '0');
             const tc = Number(summaryEl.getAttribute('data-total-count') || '0');
-            const missing = Number(summaryEl.getAttribute('data-missing-count') || '0');
             const hasOrder = tc > 0;
             const hasPacked = pc > 0;
             const completed = hasOrder && (pc === tc) && tc > 0;
@@ -613,48 +697,39 @@ if (expandAllInput){
               row.dataset.hasOrder = hasOrder ? '1' : '0';
 
               // Row background
-              row.classList.remove('bg-rose-900/20', 'border-l-2', 'border-l-rose-500', 'bg-emerald-700/35', 'bg-emerald-700/20', 'bg-slate-900/20');
-              if (Number(missing || 0) > 0) { row.classList.add('bg-rose-900/20', 'border-l-2', 'border-l-rose-500'); }
-              else if (completed) row.classList.add('bg-emerald-700/35');
+              row.classList.remove('bg-emerald-700/35', 'bg-emerald-700/20', 'bg-slate-900/20');
+              if (completed) row.classList.add('bg-emerald-700/35');
               else if (hasPacked) row.classList.add('bg-emerald-700/20');
               else if (hasOrder) row.classList.add('bg-slate-900/20');
 
               // Status badge
               const stCell = row.querySelector('td[data-col="status"]');
               if (stCell) {
-                let statusHtml = '';
                 if (!hasOrder) {
-                  statusHtml = `
+                  stCell.innerHTML = `
                     <span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-slate-800 bg-slate-950/30 text-slate-300">
                       <span class="w-2 h-2 rounded-full bg-slate-500"></span>No Order
                     </span>
                   `.trim();
                 } else if (completed) {
-                  statusHtml = `
+                  stCell.innerHTML = `
                     <span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-emerald-800 bg-emerald-900/20 text-emerald-200">
                       <span class="w-2 h-2 rounded-full bg-emerald-400"></span>Completed
                     </span>
                   `.trim();
                 } else if (hasPacked) {
-                  statusHtml = `
+                  stCell.innerHTML = `
                     <span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-emerald-800/70 bg-emerald-900/10 text-emerald-100">
                       <span class="w-2 h-2 rounded-full bg-emerald-300"></span>Packed
                     </span>
                   `.trim();
                 } else {
-                  statusHtml = `
+                  stCell.innerHTML = `
                     <span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-slate-800 bg-slate-950/20 text-slate-200">
                       <span class="w-2 h-2 rounded-full bg-slate-300"></span>Ordered
                     </span>
                   `.trim();
                 }
-                if (Number(row.dataset.invoiced || '0') > 0) {
-                  statusHtml += `<div class="mt-1"><span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-violet-700 bg-violet-900/20 text-violet-100"><span class="w-2 h-2 rounded-full bg-violet-400"></span>Τιμολογήθηκε</span></div>`;
-                }
-                if (missing > 0) {
-                  statusHtml += `<div class="mt-1"><span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-rose-700 bg-rose-900/20 text-rose-100"><span class="w-2 h-2 rounded-full bg-rose-400"></span>Missing ${missing}</span></div>`;
-                }
-                stCell.innerHTML = statusHtml;
               }
             }
           }
@@ -884,42 +959,48 @@ scheduleMidnightRefresh()
   }
 
   function buildStatusHtml(row){
-    let html = '';
     if (!row.has_order){
-      html = '<span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-slate-800 bg-slate-950/30 text-slate-300"><span class="w-2 h-2 rounded-full bg-slate-500"></span>No Order</span>';
-    } else if (row.completed){
-      html = '<span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-emerald-800 bg-emerald-900/20 text-emerald-200"><span class="w-2 h-2 rounded-full bg-emerald-400"></span>Completed</span>';
-    } else if (row.has_packed){
-      html = '<span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-emerald-800/70 bg-emerald-900/10 text-emerald-100"><span class="w-2 h-2 rounded-full bg-emerald-300"></span>Packed</span>';
-    } else {
-      html = '<span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-slate-800 bg-slate-950/20 text-slate-200"><span class="w-2 h-2 rounded-full bg-slate-300"></span>Ordered</span>';
+      return '<span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-slate-800 bg-slate-950/30 text-slate-300"><span class="w-2 h-2 rounded-full bg-slate-500"></span>No Order</span>';
     }
-    if (row.invoiced){
-      html += '<div class="mt-1"><span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-violet-700 bg-violet-900/20 text-violet-100"><span class="w-2 h-2 rounded-full bg-violet-400"></span>Τιμολογήθηκε</span></div>';
+    if (row.completed){
+      return '<span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-emerald-800 bg-emerald-900/20 text-emerald-200"><span class="w-2 h-2 rounded-full bg-emerald-400"></span>Completed</span>';
     }
-    if (Number(row.missing_count || 0) > 0){
-      html += '<div class="mt-1"><span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-rose-700 bg-rose-900/20 text-rose-100"><span class="w-2 h-2 rounded-full bg-rose-400"></span>Missing ' + Number(row.missing_count || 0) + '</span></div>';
+    if (row.has_packed){
+      return '<span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-emerald-800/70 bg-emerald-900/10 text-emerald-100"><span class="w-2 h-2 rounded-full bg-emerald-300"></span>Packed</span>';
     }
-    return html;
+    return '<span class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-slate-800 bg-slate-950/20 text-slate-200"><span class="w-2 h-2 rounded-full bg-slate-300"></span>Ordered</span>';
   }
 
+  function buildInvoiceHtml(row){
+    if (!row.order_id) return '';
+    if (row.invoiced){
+      return '<button type="button" class="js-invoice-toggle inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-sky-700 bg-sky-900/20 text-sky-200 hover:bg-sky-900/30 cursor-pointer" data-order-id="' + row.order_id + '" data-invoiced="1" title="Toggle invoiced status">' +
+           '<span class="w-2 h-2 rounded-full bg-sky-400"></span>Invoiced</button>';
+     }
+     return '<button type="button" class="js-invoice-toggle inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-rose-500/50 bg-rose-500/10 text-rose-300 hover:bg-rose-500/15 cursor-pointer" data-order-id="' + row.order_id + '" data-invoiced="0" title="Toggle invoiced status">' +
+         '<span class="w-2 h-2 rounded-full bg-rose-500"></span>Pending</button>';
+}
+
   function buildLockedHtml(customerId, dateStr, row){
+    let lockHtml = '';
     if (row.locked){
-      return '<form method="post" action="/admin/orders/' + customerId + '/unlock" class="inline">' +
-             '<input type="hidden" name="date_str" value="' + escapeHtml(dateStr) + '">' +
-             '<button type="submit" class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-amber-800 bg-amber-900/15 text-amber-200 hover:bg-amber-900/25 cursor-pointer">' +
-             '<span class="w-2 h-2 rounded-full bg-amber-400"></span>Locked</button></form>';
+      lockHtml = '<form method="post" action="/admin/orders/' + customerId + '/unlock" class="inline">' +
+                 '<input type="hidden" name="date_str" value="' + escapeHtml(dateStr) + '">' +
+                 '<button type="submit" class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-amber-800 bg-amber-900/15 text-amber-200 hover:bg-amber-900/25 cursor-pointer">' +
+                 '<span class="w-2 h-2 rounded-full bg-amber-400"></span>Locked</button></form>';
+    } else {
+      lockHtml = '<form method="post" action="/admin/orders/' + customerId + '/lock" class="inline">' +
+                 '<input type="hidden" name="date_str" value="' + escapeHtml(dateStr) + '">' +
+                 '<button type="submit" class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-slate-800 bg-slate-950/20 text-slate-300 hover:bg-slate-900/30 cursor-pointer">' +
+                 '<span class="w-2 h-2 rounded-full bg-slate-500"></span>—</button></form>';
     }
-    return '<form method="post" action="/admin/orders/' + customerId + '/lock" class="inline">' +
-           '<input type="hidden" name="date_str" value="' + escapeHtml(dateStr) + '">' +
-           '<button type="submit" class="inline-flex items-center gap-2 text-xs font-semibold px-2 py-1 rounded-full border border-slate-800 bg-slate-950/20 text-slate-300 hover:bg-slate-900/30 cursor-pointer">' +
-           '<span class="w-2 h-2 rounded-full bg-slate-500"></span>—</button></form>';
+    return '<div class="inline-flex items-center gap-2 flex-wrap">' + lockHtml + buildInvoiceHtml(row) + '</div>';
   }
 
   function buildRowClass(row){
     let out = 'border-t border-slate-900';
-    if (Number(row.missing_count || 0) > 0) out = 'bg-rose-900/20 border-l-2 border-l-rose-500 ' + out;
-    else if (row.completed) out = 'bg-emerald-700/35 ' + out;
+    if (row.priority) out = 'sr-priority-row ' + out;
+    if (row.completed) out = 'bg-emerald-700/35 ' + out;
     else if (row.has_packed) out = 'bg-emerald-700/20 ' + out;
     else if (row.has_order) out = 'bg-slate-900/20 ' + out;
     return out;
@@ -949,7 +1030,8 @@ scheduleMidnightRefresh()
 
       tr.className = buildRowClass(row);
       tr.setAttribute('data-has-order', row.has_order ? '1' : '0');
-      tr.setAttribute('data-invoiced', row.invoiced ? '1' : '0');
+      tr.setAttribute('data-completed', row.completed ? '1' : '0');
+      tr.setAttribute('data-priority', row.priority ? '1' : '0');
 
       const statusCell = tr.querySelector('[data-col="status"]');
       if (statusCell) statusCell.innerHTML = buildStatusHtml(row);
@@ -959,7 +1041,17 @@ scheduleMidnightRefresh()
 
       const commentCell = tr.querySelector('[data-col="comment"]');
       if (commentCell) commentCell.textContent = (row.comment && row.comment.trim()) ? row.comment : '—';
+
+      const badge = tr.querySelector('[data-col="priority-badge"]');
+      if (badge) badge.classList.toggle('hidden', !row.priority);
+
+      const pbtn = tr.querySelector('.js-priority-toggle');
+      if (pbtn) {
+        pbtn.setAttribute('data-priority', row.priority ? '1' : '0');
+        pbtn.className = 'js-priority-toggle w-11 h-8 inline-flex items-center justify-center rounded border font-semibold text-xs ' + (row.priority ? 'bg-rose-700/80 hover:bg-rose-600 border-rose-500/70 text-white' : 'bg-slate-900/60 hover:bg-slate-800 border-slate-800 text-slate-200');
+      }
     });
+    applyDashboardFilters();
   }
 
   async function pollLiveStatus(){
@@ -1031,9 +1123,9 @@ scheduleMidnightRefresh()
       if (!rowEl) return;
 
       rowEl.dataset.hasOrder = hasOrder ? '1' : '0';
-      rowEl.classList.remove('bg-rose-900/20', 'border-l-2', 'border-l-rose-500', 'bg-emerald-700/35', 'bg-emerald-700/20', 'bg-slate-900/20');
-      if (Number(row.missing_count || 0) > 0) rowEl.classList.add('bg-rose-900/20', 'border-l-2', 'border-l-rose-500');
-      else if (completed) rowEl.classList.add('bg-emerald-700/35');
+      rowEl.dataset.completed = completed ? '1' : '0';
+      rowEl.classList.remove('bg-emerald-700/35', 'bg-emerald-700/20', 'bg-slate-900/20');
+      if (completed) rowEl.classList.add('bg-emerald-700/35');
       else if (hasPacked) rowEl.classList.add('bg-emerald-700/20');
       else if (hasOrder) rowEl.classList.add('bg-slate-900/20');
 

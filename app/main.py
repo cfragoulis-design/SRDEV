@@ -5,9 +5,7 @@ import smtplib
 import requests
 from email.mime.text import MIMEText
 from datetime import datetime, date, timedelta, time as dtime
-from calendar import monthrange
 from zoneinfo import ZoneInfo
-from urllib.parse import quote_plus
 
 from fastapi import FastAPI, Request, Depends, Form, HTTPException
 from pydantic import BaseModel
@@ -24,6 +22,9 @@ from .security import hash_secret, verify_secret
 from .auth import sign_session, get_admin_username, get_portal_customer
 from .utils import slugify
 from .telegram import send_telegram
+import os
+import smtplib
+from email.mime.text import MIMEText
 
 app = FastAPI()
 # Static assets (logos, etc.) – safe for Railway
@@ -103,65 +104,12 @@ def today_local_date() -> date:
 def tomorrow_local_date() -> date:
     return (now_local().date() + timedelta(days=1))
 
-
-def _orthodox_easter_sunday(year: int) -> date:
-    a = year % 4
-    b = year % 7
-    c = year % 19
-    d = (19 * c + 15) % 30
-    e = (2 * a + 4 * b - d + 34) % 7
-    month = (d + e + 114) // 31
-    day = ((d + e + 114) % 31) + 1
-    julian_easter = date(year, month, day)
-    return julian_easter + timedelta(days=13)
-
-
-def greek_holidays(year: int) -> set[date]:
-    easter = _orthodox_easter_sunday(year)
-    return {
-        date(year, 1, 1),
-        date(year, 1, 6),
-        date(year, 3, 25),
-        date(year, 5, 1),
-        date(year, 8, 15),
-        date(year, 10, 28),
-        date(year, 12, 25),
-        date(year, 12, 26),
-        easter - timedelta(days=48),
-        easter - timedelta(days=2),
-        easter + timedelta(days=1),
-        easter + timedelta(days=50),
-    }
-
-
-def is_greek_holiday(d: date) -> bool:
-    return d in greek_holidays(d.year)
-
-
-def is_blocked_portal_date(d: date) -> bool:
-    return d.weekday() == 6 or is_greek_holiday(d)
-
-
-def blocked_portal_reason(d: date) -> str | None:
-    if d.weekday() == 6:
-        return "Δεν γίνονται παραγγελίες για Κυριακή."
-    if is_greek_holiday(d):
-        return "Η επιλεγμένη ημερομηνία είναι επίσημη αργία. Δεν γίνονται παραγγελίες."
-    return None
-
-
-def blocked_dates_for_picker(base_date: date) -> list[str]:
-    years = {base_date.year - 1, base_date.year, base_date.year + 1}
-    out: set[date] = set()
-    for y in years:
-        for m in range(1, 13):
-            last_day = monthrange(y, m)[1]
-            for day in range(1, last_day + 1):
-                dd = date(y, m, day)
-                if is_blocked_portal_date(dd):
-                    out.add(dd)
-    return sorted(x.isoformat() for x in out)
-
+def portal_min_order_date() -> date:
+    now = now_local()
+    today = now.date()
+    if now.time() >= dtime(12, 0):
+        return today + timedelta(days=1)
+    return today
 
 def audit(db: Session, actor: str, action: str, payload: str = "") -> None:
     db.add(AuditLog(actor=actor, action=action, payload=payload))
@@ -327,9 +275,14 @@ def ensure_orders_extra_columns() -> None:
             ("locked_at", "TIMESTAMP"),
             ("override_note", "TEXT"),
             ("submitted_at", "TIMESTAMP"),
+            ("edit_used", "INTEGER DEFAULT 0"),
+            ("edit_unlocked", "INTEGER DEFAULT 0"),
+            ("edited_at", "TIMESTAMP"),
+            ("edited_by", "VARCHAR(80)"),
+            ("priority", "INTEGER DEFAULT 0"),
             ("is_invoiced", "INTEGER DEFAULT 0"),
-            ("invoiced_by", "VARCHAR(80)"),
             ("invoiced_at", "TIMESTAMP"),
+            ("invoiced_by", "VARCHAR(80)"),
         ]
     else:
         needed = [
@@ -339,9 +292,14 @@ def ensure_orders_extra_columns() -> None:
             ("locked_at", "TIMESTAMP"),
             ("override_note", "TEXT"),
             ("submitted_at", "TIMESTAMP"),
-            ("is_invoiced", "BOOLEAN DEFAULT FALSE"),
-            ("invoiced_by", "VARCHAR(80)"),
+            ("edit_used", "BOOLEAN DEFAULT FALSE"),
+            ("edit_unlocked", "BOOLEAN DEFAULT FALSE"),
+            ("edited_at", "TIMESTAMP"),
+            ("edited_by", "VARCHAR(80)"),
+            ("priority", "INTEGER DEFAULT 0"),
+            ("is_invoiced", "INTEGER DEFAULT 0"),
             ("invoiced_at", "TIMESTAMP"),
+            ("invoiced_by", "VARCHAR(80)"),
         ]
 
     with engine.begin() as conn:
@@ -1083,7 +1041,7 @@ def admin_dashboard(request: Request, db: Session = Depends(get_db), date_str: s
 
     only_ordered = 0 if show_all else 1
 
-    customers = db.execute(select(Customer).where(Customer.is_active == True).order_by(Customer.name)).scalars().all()
+    customers = db.execute(select(Customer).where(Customer.is_active == True).order_by(Customer.area_route.asc(), Customer.name.asc())).scalars().all()
     has_packed_col = hasattr(OrderLine, "packed_qty")
 
     summaries = []
@@ -1100,8 +1058,8 @@ def admin_dashboard(request: Request, db: Session = Depends(get_db), date_str: s
         locked_by = ""
         override_note = ""
         order_id = None
-        invoiced = False
-        missing_count = 0
+        priority = int(getattr(o, "priority", 0) or 0) if o else 0
+        invoiced = int(getattr(o, "is_invoiced", 0) or 0) if o else 0
 
         if o:
             status = o.status
@@ -1111,7 +1069,6 @@ def admin_dashboard(request: Request, db: Session = Depends(get_db), date_str: s
             locked_by = (o.locked_by or "")
             override_note = (o.override_note or "")
             order_id = o.id
-            invoiced = bool(getattr(o, "is_invoiced", False))
 
             if has_packed_col:
                 lines = db.execute(select(OrderLine.qty, OrderLine.packed_qty).where(OrderLine.order_id == o.id)).all()
@@ -1153,9 +1110,6 @@ def admin_dashboard(request: Request, db: Session = Depends(get_db), date_str: s
             elif has_packed_col:
                 has_packed = any((pv is not None and pv > 0) for _, pv in packed_pairs)
 
-            if has_packed_col:
-                missing_count = sum(1 for qv, pv in packed_pairs if qv > 0 and (pv is None or pv <= 0))
-
         if only_ordered and not has_order:
             continue
 
@@ -1172,11 +1126,12 @@ def admin_dashboard(request: Request, db: Session = Depends(get_db), date_str: s
                 "locked_by": locked_by,
                 "override_note": override_note,
                 "order_id": order_id,
+                "priority": priority,
                 "invoiced": invoiced,
-                "missing_count": missing_count,
-                "blocked_day": is_blocked_portal_date(d),
             }
         )
+
+    summaries.sort(key=lambda x: (-(int(x.get("priority") or 0)), ((x.get("customer").name or "").lower())))
 
     # Aggregate product totals for the selected day (quick prep view).
     # Uses ordered quantities (qty) across all active customers' orders.
@@ -1245,6 +1200,55 @@ def admin_dashboard(request: Request, db: Session = Depends(get_db), date_str: s
     )
 
 
+@app.post("/admin/orders/{order_id}/priority")
+def admin_order_set_priority(
+    order_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin_user: str = Depends(require_admin),
+    priority: int = Form(0),
+):
+    order = db.execute(select(Order).where(Order.id == order_id)).scalar_one_or_none()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    new_priority = 1 if int(priority or 0) > 0 else 0
+    order.priority = new_priority
+    order.updated_at = datetime.utcnow()
+    db.commit()
+    audit(db, actor=admin_user, action="order.priority", payload=f"order_id={order_id};priority={new_priority}")
+    return JSONResponse({"ok": True, "order_id": order_id, "priority": new_priority})
+
+
+@app.post("/admin/orders/{order_id}/invoice-toggle")
+def admin_order_toggle_invoice(
+    order_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin_user: str = Depends(require_admin),
+):
+    order = db.execute(select(Order).where(Order.id == order_id)).scalar_one_or_none()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    now = datetime.utcnow()
+    current = int(getattr(order, "is_invoiced", 0) or 0)
+    new_value = 0 if current else 1
+    order.is_invoiced = new_value
+    order.invoiced_at = now if new_value else None
+    order.invoiced_by = admin_user if new_value else ""
+    order.updated_at = now
+    db.commit()
+    audit(db, actor=admin_user, action="order.invoice_toggle", payload=f"order_id={order_id};is_invoiced={new_value}")
+    return JSONResponse({
+        "ok": True,
+        "order_id": order_id,
+        "is_invoiced": new_value,
+        "invoiced_at": (order.invoiced_at.isoformat() if order.invoiced_at else ""),
+        "invoiced_by": (order.invoiced_by or ""),
+    })
+
+
 @app.get("/admin/dashboard/live-status")
 def admin_dashboard_live_status(
     request: Request,
@@ -1263,7 +1267,7 @@ def admin_dashboard_live_status(
 
     only_ordered = 0 if show_all else 1
     customers = db.execute(
-        select(Customer).where(Customer.is_active == True).order_by(Customer.name)
+        select(Customer).where(Customer.is_active == True).order_by(Customer.area_route.asc(), Customer.name.asc())
     ).scalars().all()
     has_packed_col = hasattr(OrderLine, "packed_qty")
 
@@ -1279,14 +1283,14 @@ def admin_dashboard_live_status(
         comment = ""
         completed = False
         has_packed = False
-        invoiced = False
-        missing_count = 0
+        priority = int(getattr(o, "priority", 0) or 0) if o else 0
+        invoiced = int(getattr(o, "is_invoiced", 0) or 0) if o else 0
+        order_id = int(o.id) if o else None
 
         if o:
             status = o.status
             locked = (o.locked_at is not None) or bool(getattr(o, "is_locked", False))
             comment = o.customer_comment or ""
-            invoiced = bool(getattr(o, "is_invoiced", False))
 
             if has_packed_col:
                 lines = db.execute(
@@ -1328,26 +1332,26 @@ def admin_dashboard_live_status(
             elif has_packed_col:
                 has_packed = any((pv is not None and pv > 0) for _, pv in packed_pairs)
 
-            if has_packed_col:
-                missing_count = sum(1 for qv, pv in packed_pairs if qv > 0 and (pv is None or pv <= 0))
-
         if only_ordered and not has_order:
             continue
 
         rows.append(
             {
                 "customer_id": c.id,
+                "customer_name": c.name or "",
                 "has_order": has_order,
                 "status": status,
                 "locked": locked,
                 "comment": comment or "",
                 "completed": completed,
                 "has_packed": has_packed,
+                "priority": priority,
                 "invoiced": invoiced,
-                "missing_count": missing_count,
-                "blocked_day": is_blocked_portal_date(d),
+                "order_id": order_id,
             }
         )
+
+    rows.sort(key=lambda x: (-(int(x.get("priority") or 0)), ((x.get("customer_name") or "").lower())))
 
     return JSONResponse(
         {
@@ -1664,13 +1668,9 @@ def admin_order_summary(customer_id: int, request: Request, db: Session = Depend
 
     total_count = len(items)
     packed_count = 0
-    missing_count = 0
     for it in items:
-        qty = float(it.get("qty") or 0)
         pq = it.get("packed_qty")
-        if pq is None or float(pq or 0) <= 0:
-            if qty > 0:
-                missing_count += 1
+        if pq is None:
             continue
         packed_count += 1
 
@@ -1688,7 +1688,6 @@ def admin_order_summary(customer_id: int, request: Request, db: Session = Depend
             "items": items,
             "packed_count": packed_count,
             "total_count": total_count,
-            "missing_count": missing_count,
             "subtotal_disp": _fmt_money(subtotal),
             "vat_disp": _fmt_money(vat),
             "grand_total_disp": _fmt_money(grand_total),
@@ -1801,11 +1800,6 @@ def admin_order_full_get(customer_id: int, request: Request, db: Session = Depen
             "qty_map": qty_map,
             "packed_map": packed_map,
             "comment": o.customer_comment or "",
-            "is_blocked_day": is_blocked_portal_date(d),
-            "blocked_day_reason": blocked_portal_reason(d),
-            "is_invoiced": bool(getattr(o, "is_invoiced", False)),
-            "invoiced_by": getattr(o, "invoiced_by", "") or "",
-            "invoiced_at": getattr(o, "invoiced_at", None),
         },
     )
 
@@ -1884,40 +1878,8 @@ def admin_orderline_set_packed_inline(
 
 
 
-@app.post("/admin/orders/{order_id}/toggle-invoiced")
-def admin_order_toggle_invoiced(order_id: int, request: Request, date_str: str = Form(""), from_page: str = Form("dashboard"), db: Session = Depends(get_db)):
-    admin_u = require_admin(request)
-    o = db.get(Order, order_id)
-    if not o:
-        raise HTTPException(status_code=404, detail="Order not found")
-
-    new_state = not bool(getattr(o, "is_invoiced", False))
-    setattr(o, "is_invoiced", new_state)
-    if new_state:
-        setattr(o, "invoiced_by", admin_u)
-        setattr(o, "invoiced_at", now_local())
-    else:
-        setattr(o, "invoiced_by", "")
-        setattr(o, "invoiced_at", None)
-    o.updated_at = datetime.utcnow()
-    db.commit()
-    audit(db, actor=f"admin:{admin_u}", action=("order.invoiced" if new_state else "order.uninvoiced"), payload=f"order_id={o.id}")
-
-    target_date = o.order_date.isoformat()
-    if date_str:
-        try:
-            target_date = date.fromisoformat(date_str).isoformat()
-        except ValueError:
-            pass
-
-    if from_page == "full":
-        return RedirectResponse(url=f"/admin/orders/{o.customer_id}/full?date_str={target_date}", status_code=303)
-    return RedirectResponse(url=f"/admin/dashboard?date_str={target_date}", status_code=303)
-
-
 @app.post("/admin/orders/{customer_id}/full")
 async def admin_order_full_post(customer_id: int, request: Request, db: Session = Depends(get_db)):
-
     admin_u = require_admin(request)
     form = await request.form()
 
@@ -2648,7 +2610,7 @@ def portal_pin_post(slug: str, request: Request, db: Session = Depends(get_db), 
     return resp
 
 @app.get("/p/{slug}/order", response_class=HTMLResponse)
-def portal_order_get(slug: str, request: Request, db: Session = Depends(get_db), date_str: str | None = None, empty_error: int = 0, pwd_msg: str | None = None, pwd_err: str | None = None):
+def portal_order_get(slug: str, request: Request, db: Session = Depends(get_db), date_str: str | None = None, empty_error: int = 0, pwd_msg: str | None = None, pwd_err: str | None = None, after_noon_notice: int = 0):
     c, canon = _portal_customer_by_slug_or_alias(db, slug)
     if not c:
         raise HTTPException(404)
@@ -2665,10 +2627,15 @@ def portal_order_get(slug: str, request: Request, db: Session = Depends(get_db),
         except ValueError:
             pass
 
-    # block past dates
+    # block past dates / and block same-day portal orders after 12:00
     today = today_local_date()
+    min_portal_date = portal_min_order_date()
+    after_noon_notice = bool(after_noon_notice)
     if d < today:
         d = today
+    if d < min_portal_date:
+        d = min_portal_date
+        after_noon_notice = True
 
     cps = db.execute(
         select(CustomerProduct, Product, Unit)
@@ -2681,9 +2648,9 @@ def portal_order_get(slug: str, request: Request, db: Session = Depends(get_db),
     o = db.execute(select(Order).where(Order.customer_id == c.id, Order.order_date == d)).scalar_one_or_none()
     locked = bool(o and (o.is_locked or o.locked_at is not None))
     submitted = bool(o and getattr(o, "submitted_at", None) is not None)
+    can_edit_once = bool(o and submitted and not getattr(o, "edit_used", False))
+    edit_mode = bool(o and getattr(o, "edit_unlocked", False) and not getattr(o, "edit_used", False))
     comment = o.customer_comment if o else ""
-    blocked_reason = blocked_portal_reason(d)
-    date_blocked = bool(blocked_reason)
 
     qty_map = {}
     if o:
@@ -2749,7 +2716,7 @@ def portal_order_get(slug: str, request: Request, db: Session = Depends(get_db),
     except Exception:
         history_orders = []
 
-    return templates.TemplateResponse("portal_order.html", {"request": request, "customer": c, "date": d, "items": cps, "qty_map": qty_map_disp, "qty_map_disp": qty_map_disp, "locked": locked, "submitted": submitted, "comment": (comment or ""), "history_orders": history_orders, "empty_error": bool(empty_error), "message": pwd_msg, "pwd_error": pwd_err, "date_blocked": date_blocked, "blocked_reason": blocked_reason, "blocked_dates": blocked_dates_for_picker(d)})
+    return templates.TemplateResponse("portal_order.html", {"request": request, "customer": c, "date": d, "items": cps, "qty_map": qty_map_disp, "qty_map_disp": qty_map_disp, "locked": locked, "submitted": submitted, "can_edit_once": can_edit_once, "edit_mode": edit_mode, "comment": (comment or ""), "history_orders": history_orders, "empty_error": bool(empty_error), "message": pwd_msg, "pwd_error": pwd_err, "after_noon_notice": bool(after_noon_notice), "min_portal_date": min_portal_date.isoformat()})
 
 @app.post("/p/{slug}/save-contact")
 async def portal_save_contact(slug: str, request: Request, db: Session = Depends(get_db)):
@@ -2813,6 +2780,29 @@ def portal_change_pin(
     audit(db, actor=f"portal:{slug}", action="portal_change_pin")
     return RedirectResponse(url=f"/p/{slug}/order{date_q}{'&' if date_q else '?'}pwd_msg=Το+PIN+άλλαξε+επιτυχώς.", status_code=303)
 
+
+@app.post("/p/{slug}/unlock-edit")
+def portal_unlock_edit(slug: str, request: Request, db: Session = Depends(get_db), date_str: str = Form(...)):
+    c, canon = _portal_customer_by_slug_or_alias(db, slug)
+    if not c:
+        raise HTTPException(404)
+    if get_portal_customer(request) != canon:
+        raise HTTPException(status_code=401)
+
+    d = date.fromisoformat(date_str)
+    o = db.execute(select(Order).where(Order.customer_id == c.id, Order.order_date == d)).scalar_one_or_none()
+
+    if not o or o.edit_used or not o.submitted_at:
+        return RedirectResponse(url=f"/p/{slug}/order?date_str={d.isoformat()}", status_code=303)
+
+    o.edit_unlocked = True
+    o.is_locked = False
+    o.locked_at = None
+    o.status = "EDITING"
+    db.commit()
+
+    return RedirectResponse(url=f"/p/{slug}/order?date_str={d.isoformat()}", status_code=303)
+
 @app.post("/p/{slug}/order")
 async def portal_order_post(slug: str, request: Request, db: Session = Depends(get_db), date_str: str = Form(...), comment: str = Form("")):
     c, canon = _portal_customer_by_slug_or_alias(db, slug)
@@ -2828,12 +2818,16 @@ async def portal_order_post(slug: str, request: Request, db: Session = Depends(g
     except ValueError:
         d = tomorrow_local_date()
 
+    min_portal_date = portal_min_order_date()
+    if d < min_portal_date:
+        return RedirectResponse(url=f"/p/{slug}/order?date_str={min_portal_date.isoformat()}&after_noon_notice=1", status_code=303)
+
     o = db.execute(select(Order).where(Order.customer_id == c.id, Order.order_date == d)).scalar_one_or_none()
     if o and (o.is_locked or o.locked_at is not None):
         return RedirectResponse(url=f"/p/{slug}/order?date_str={d.isoformat()}", status_code=302)
 
-    # One-time submit: if already submitted, do not accept resubmission
-    if o and getattr(o, "submitted_at", None) is not None:
+    # One-time edit support
+    if o and getattr(o, "submitted_at", None) is not None and not getattr(o, "edit_unlocked", False):
         return RedirectResponse(url=f"/p/{slug}/order?date_str={d.isoformat()}", status_code=302)
 
     cps = db.execute(
@@ -2881,6 +2875,11 @@ async def portal_order_post(slug: str, request: Request, db: Session = Depends(g
         o.customer_comment = clean_comment
         if getattr(o, "submitted_at", None) is None:
             o.submitted_at = datetime.utcnow()
+        elif getattr(o, "edit_unlocked", False):
+            o.edit_used = True
+            o.edit_unlocked = False
+            o.edited_at = datetime.utcnow()
+            o.edited_by = f"portal:{slug}"
         o.updated_at = datetime.utcnow()
         db.commit()
 
@@ -2964,6 +2963,56 @@ async def portal_order_post(slug: str, request: Request, db: Session = Depends(g
     return RedirectResponse(url=f"/p/{slug}/order?date_str={d.isoformat()}", status_code=302)
 
 
+
+
+
+def send_order_email(customer, order, order_lines, is_final=False):
+    recipient = (customer.email or '').strip()
+    if not recipient:
+        return
+
+    smtp_host = os.getenv('SMTP_HOST', '')
+    smtp_port = int(os.getenv('SMTP_PORT', '587'))
+    smtp_user = os.getenv('SMTP_USER', '')
+    smtp_pass = os.getenv('SMTP_PASS', '')
+    smtp_from = os.getenv('SMTP_FROM', smtp_user or 'noreply@localhost')
+
+    if not smtp_host:
+        return
+
+    rows = []
+    for pname, qty, ucode in order_lines:
+        rows.append(f'- {pname}: {qty} {ucode}')
+
+    subject = f"Order Confirmation #{order.id}"
+    if is_final:
+        subject += ' (Final Edit)'
+
+    body = f"""Your order has been submitted successfully.
+
+Order Date: {order.order_date.strftime('%d-%m-%Y')}
+Customer: {customer.name}
+
+Items:
+{chr(10).join(rows)}
+
+Comment:
+{order.customer_comment or '-'}
+"""
+
+    msg = MIMEText(body, 'plain', 'utf-8')
+    msg['Subject'] = subject
+    msg['From'] = smtp_from
+    msg['To'] = recipient
+
+    try:
+        with smtplib.SMTP(smtp_host, smtp_port) as server:
+            server.starttls()
+            if smtp_user:
+                server.login(smtp_user, smtp_pass)
+            server.sendmail(smtp_from, [recipient], msg.as_string())
+    except Exception:
+        pass
 
 def _require_agent(request: Request, station: str) -> None:
     station = (station or "").strip().upper()
