@@ -22,9 +22,6 @@ from .security import hash_secret, verify_secret
 from .auth import sign_session, get_admin_username, get_portal_customer
 from .utils import slugify
 from .telegram import send_telegram
-import os
-import smtplib
-from email.mime.text import MIMEText
 
 app = FastAPI()
 # Static assets (logos, etc.) – safe for Railway
@@ -275,12 +272,9 @@ def ensure_orders_extra_columns() -> None:
             ("locked_at", "TIMESTAMP"),
             ("override_note", "TEXT"),
             ("submitted_at", "TIMESTAMP"),
-            ("edit_used", "INTEGER DEFAULT 0"),
-            ("edit_unlocked", "INTEGER DEFAULT 0"),
-            ("edited_at", "TIMESTAMP"),
-            ("edited_by", "VARCHAR(80)"),
             ("priority", "INTEGER DEFAULT 0"),
             ("is_invoiced", "INTEGER DEFAULT 0"),
+            ("portal_edit_used", "INTEGER DEFAULT 0"),
             ("invoiced_at", "TIMESTAMP"),
             ("invoiced_by", "VARCHAR(80)"),
         ]
@@ -292,12 +286,9 @@ def ensure_orders_extra_columns() -> None:
             ("locked_at", "TIMESTAMP"),
             ("override_note", "TEXT"),
             ("submitted_at", "TIMESTAMP"),
-            ("edit_used", "BOOLEAN DEFAULT FALSE"),
-            ("edit_unlocked", "BOOLEAN DEFAULT FALSE"),
-            ("edited_at", "TIMESTAMP"),
-            ("edited_by", "VARCHAR(80)"),
             ("priority", "INTEGER DEFAULT 0"),
-            ("is_invoiced", "INTEGER DEFAULT 0"),
+            ("is_invoiced", "BOOLEAN DEFAULT FALSE"),
+            ("portal_edit_used", "BOOLEAN DEFAULT FALSE"),
             ("invoiced_at", "TIMESTAMP"),
             ("invoiced_by", "VARCHAR(80)"),
         ]
@@ -2013,6 +2004,34 @@ def _send_brevo_email(target_email: str, subject: str, html_content: str):
     return response.status_code in (200, 201), response.text
 
 
+def _send_order_email_to_customer(customer: Customer, order: Order, order_date: date, lines: list[str], is_edit: bool = False):
+    target_email = (getattr(customer, "email", "") or "").strip()
+    if not target_email:
+        return False, "missing_customer_email"
+
+    title = "Ενημέρωση παραγγελίας" if is_edit else "Νέα παραγγελία"
+    subject = f"{title} - {customer.name} - {order_date.strftime('%d-%m-%Y')}"
+    safe_comment = (getattr(order, "customer_comment", "") or "").strip()
+
+    if lines:
+        items_html = "".join(f"<li>{line.replace('• ', '')}</li>" for line in lines)
+    else:
+        items_html = "<li>Χωρίς προϊόντα</li>"
+
+    comment_html = f"<p><strong>Σχόλιο:</strong> {safe_comment}</p>" if safe_comment else ""
+    html = f"""
+    <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827">
+      <h2>{title}</h2>
+      <p><strong>Κατάστημα:</strong> {customer.name}</p>
+      <p><strong>Ημερομηνία παράδοσης:</strong> {order_date.strftime('%d-%m-%Y')}</p>
+      {comment_html}
+      <h3>Προϊόντα</h3>
+      <ul>{items_html}</ul>
+    </div>
+    """
+    return _send_brevo_email(target_email, subject, html)
+
+
 @app.get("/admin/customers", response_class=HTMLResponse)
 def admin_customers(request: Request, db: Session = Depends(get_db)):
     admin_u = require_admin(request)
@@ -2646,10 +2665,10 @@ def portal_order_get(slug: str, request: Request, db: Session = Depends(get_db),
     ).all()
 
     o = db.execute(select(Order).where(Order.customer_id == c.id, Order.order_date == d)).scalar_one_or_none()
-    locked = bool(o and (o.is_locked or o.locked_at is not None))
     submitted = bool(o and getattr(o, "submitted_at", None) is not None)
-    can_edit_once = bool(o and submitted and not getattr(o, "edit_used", False))
-    edit_mode = bool(o and getattr(o, "edit_unlocked", False) and not getattr(o, "edit_used", False))
+    portal_edit_used = bool(o and getattr(o, "portal_edit_used", False))
+    can_edit_once = bool(submitted and not portal_edit_used)
+    locked = bool(o and (o.is_locked or o.locked_at is not None) and not can_edit_once)
     comment = o.customer_comment if o else ""
 
     qty_map = {}
@@ -2716,7 +2735,7 @@ def portal_order_get(slug: str, request: Request, db: Session = Depends(get_db),
     except Exception:
         history_orders = []
 
-    return templates.TemplateResponse("portal_order.html", {"request": request, "customer": c, "date": d, "items": cps, "qty_map": qty_map_disp, "qty_map_disp": qty_map_disp, "locked": locked, "submitted": submitted, "can_edit_once": can_edit_once, "edit_mode": edit_mode, "comment": (comment or ""), "history_orders": history_orders, "empty_error": bool(empty_error), "message": pwd_msg, "pwd_error": pwd_err, "after_noon_notice": bool(after_noon_notice), "min_portal_date": min_portal_date.isoformat()})
+    return templates.TemplateResponse("portal_order.html", {"request": request, "customer": c, "date": d, "items": cps, "qty_map": qty_map_disp, "qty_map_disp": qty_map_disp, "locked": locked, "submitted": submitted, "portal_edit_used": portal_edit_used, "can_edit_once": can_edit_once, "comment": (comment or ""), "history_orders": history_orders, "empty_error": bool(empty_error), "message": pwd_msg, "pwd_error": pwd_err, "after_noon_notice": bool(after_noon_notice), "min_portal_date": min_portal_date.isoformat()})
 
 @app.post("/p/{slug}/save-contact")
 async def portal_save_contact(slug: str, request: Request, db: Session = Depends(get_db)):
@@ -2780,29 +2799,6 @@ def portal_change_pin(
     audit(db, actor=f"portal:{slug}", action="portal_change_pin")
     return RedirectResponse(url=f"/p/{slug}/order{date_q}{'&' if date_q else '?'}pwd_msg=Το+PIN+άλλαξε+επιτυχώς.", status_code=303)
 
-
-@app.post("/p/{slug}/unlock-edit")
-def portal_unlock_edit(slug: str, request: Request, db: Session = Depends(get_db), date_str: str = Form(...)):
-    c, canon = _portal_customer_by_slug_or_alias(db, slug)
-    if not c:
-        raise HTTPException(404)
-    if get_portal_customer(request) != canon:
-        raise HTTPException(status_code=401)
-
-    d = date.fromisoformat(date_str)
-    o = db.execute(select(Order).where(Order.customer_id == c.id, Order.order_date == d)).scalar_one_or_none()
-
-    if not o or o.edit_used or not o.submitted_at:
-        return RedirectResponse(url=f"/p/{slug}/order?date_str={d.isoformat()}", status_code=303)
-
-    o.edit_unlocked = True
-    o.is_locked = False
-    o.locked_at = None
-    o.status = "EDITING"
-    db.commit()
-
-    return RedirectResponse(url=f"/p/{slug}/order?date_str={d.isoformat()}", status_code=303)
-
 @app.post("/p/{slug}/order")
 async def portal_order_post(slug: str, request: Request, db: Session = Depends(get_db), date_str: str = Form(...), comment: str = Form("")):
     c, canon = _portal_customer_by_slug_or_alias(db, slug)
@@ -2823,11 +2819,14 @@ async def portal_order_post(slug: str, request: Request, db: Session = Depends(g
         return RedirectResponse(url=f"/p/{slug}/order?date_str={min_portal_date.isoformat()}&after_noon_notice=1", status_code=303)
 
     o = db.execute(select(Order).where(Order.customer_id == c.id, Order.order_date == d)).scalar_one_or_none()
-    if o and (o.is_locked or o.locked_at is not None):
+    is_portal_edit = bool(o and getattr(o, "submitted_at", None) is not None and not bool(getattr(o, "portal_edit_used", False)))
+
+    # Allow exactly one portal edit after the first submit, even though portal orders are auto-locked.
+    if o and (o.is_locked or o.locked_at is not None) and not is_portal_edit:
         return RedirectResponse(url=f"/p/{slug}/order?date_str={d.isoformat()}", status_code=302)
 
-    # One-time edit support
-    if o and getattr(o, "submitted_at", None) is not None and not getattr(o, "edit_unlocked", False):
+    # After the one-time edit has been used, do not accept more portal resubmissions.
+    if o and getattr(o, "submitted_at", None) is not None and not is_portal_edit:
         return RedirectResponse(url=f"/p/{slug}/order?date_str={d.isoformat()}", status_code=302)
 
     cps = db.execute(
@@ -2875,11 +2874,8 @@ async def portal_order_post(slug: str, request: Request, db: Session = Depends(g
         o.customer_comment = clean_comment
         if getattr(o, "submitted_at", None) is None:
             o.submitted_at = datetime.utcnow()
-        elif getattr(o, "edit_unlocked", False):
-            o.edit_used = True
-            o.edit_unlocked = False
-            o.edited_at = datetime.utcnow()
-            o.edited_by = f"portal:{slug}"
+        elif is_portal_edit:
+            o.portal_edit_used = True
         o.updated_at = datetime.utcnow()
         db.commit()
 
@@ -2902,7 +2898,7 @@ async def portal_order_post(slug: str, request: Request, db: Session = Depends(g
     o.updated_at = datetime.utcnow()
     db.commit()
 
-    audit(db, actor=f"portal:{slug}", action="order_submit", payload=f"{d.isoformat()} items={total_items}")
+    audit(db, actor=f"portal:{slug}", action=("order_edit" if is_portal_edit else "order_submit"), payload=f"{d.isoformat()} items={total_items}")
 
     def _fmt_qty_for_telegram(q: float, unit_code: str) -> str:
         u = (unit_code or "").strip().upper()
@@ -2948,7 +2944,7 @@ async def portal_order_post(slug: str, request: Request, db: Session = Depends(g
     order_comment = (o.customer_comment or "").strip()
 
     msg_parts = [
-        "📩 Νέα παραγγελία",
+        ("✏️ Επεξεργασία παραγγελίας" if is_portal_edit else "📩 Νέα παραγγελία"),
         str(c.name),
         f"Ημερομηνία: {d.strftime('%d-%m-%Y')}",
     ]
@@ -2963,56 +2959,6 @@ async def portal_order_post(slug: str, request: Request, db: Session = Depends(g
     return RedirectResponse(url=f"/p/{slug}/order?date_str={d.isoformat()}", status_code=302)
 
 
-
-
-
-def send_order_email(customer, order, order_lines, is_final=False):
-    recipient = (customer.email or '').strip()
-    if not recipient:
-        return
-
-    smtp_host = os.getenv('SMTP_HOST', '')
-    smtp_port = int(os.getenv('SMTP_PORT', '587'))
-    smtp_user = os.getenv('SMTP_USER', '')
-    smtp_pass = os.getenv('SMTP_PASS', '')
-    smtp_from = os.getenv('SMTP_FROM', smtp_user or 'noreply@localhost')
-
-    if not smtp_host:
-        return
-
-    rows = []
-    for pname, qty, ucode in order_lines:
-        rows.append(f'- {pname}: {qty} {ucode}')
-
-    subject = f"Order Confirmation #{order.id}"
-    if is_final:
-        subject += ' (Final Edit)'
-
-    body = f"""Your order has been submitted successfully.
-
-Order Date: {order.order_date.strftime('%d-%m-%Y')}
-Customer: {customer.name}
-
-Items:
-{chr(10).join(rows)}
-
-Comment:
-{order.customer_comment or '-'}
-"""
-
-    msg = MIMEText(body, 'plain', 'utf-8')
-    msg['Subject'] = subject
-    msg['From'] = smtp_from
-    msg['To'] = recipient
-
-    try:
-        with smtplib.SMTP(smtp_host, smtp_port) as server:
-            server.starttls()
-            if smtp_user:
-                server.login(smtp_user, smtp_pass)
-            server.sendmail(smtp_from, [recipient], msg.as_string())
-    except Exception:
-        pass
 
 def _require_agent(request: Request, station: str) -> None:
     station = (station or "").strip().upper()

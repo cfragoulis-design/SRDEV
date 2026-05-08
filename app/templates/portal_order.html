@@ -172,18 +172,14 @@ span.flatpickr-weekday,
   </div>
 {% endif %}
 
-{% if submitted %}
-  <div class="mb-4 bg-emerald-900/30 border border-emerald-800 text-emerald-200 rounded-2xl px-4 py-3">
-    Η παραγγελία έχει υποβληθεί επιτυχώς.
+{% if submitted and can_edit_once %}
+  <div class="mb-4 bg-blue-900/30 border border-blue-800 text-blue-200 rounded-2xl px-4 py-3">
+    Η παραγγελία έχει υποβληθεί επιτυχώς. Μπορείς να την επεξεργαστείς ακόμα 1 φορά και να πατήσεις «Αποστολή αλλαγών». Μετά θα κλειδώσει οριστικά.
   </div>
-{% if can_edit_once %}
-  <form method="post" action="/p/{{ customer.slug }}/unlock-edit" class="mb-4">
-    <input type="hidden" name="date_str" value="{{ date.isoformat() }}">
-    <button class="bg-amber-600 hover:bg-amber-500 rounded-xl px-4 py-2 text-sm font-medium">
-      Επεξεργασία Παραγγελίας (1 φορά)
-    </button>
-  </form>
-{% endif %}
+{% elif submitted %}
+  <div class="mb-4 bg-emerald-900/30 border border-emerald-800 text-emerald-200 rounded-2xl px-4 py-3">
+    Η παραγγελία έχει υποβληθεί επιτυχώς και έχει κλειδώσει. Για αλλαγές, επικοινώνησε με το κατάστημα.
+  </div>
 {% elif locked %}
   <div class="mb-4 bg-amber-900/30 border border-amber-800 text-amber-200 rounded-2xl px-4 py-3">
     Η παραγγελία έχει κλειδώσει (10:00). Για αλλαγές, επικοινώνησε με το κατάστημα.
@@ -247,7 +243,7 @@ span.flatpickr-weekday,
           autocomplete="tel"
           class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white placeholder:text-slate-500 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition"
           placeholder="π.χ. 69xxxxxxxx"
-          {% if locked or (submitted and not edit_mode) %}disabled{% endif %}>
+          {% if locked or (submitted and not can_edit_once) %}disabled{% endif %}>
       </div>
       <div>
         <label for="portal-email" class="text-sm text-slate-300">Email</label>
@@ -258,7 +254,7 @@ span.flatpickr-weekday,
           autocomplete="email"
           class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white placeholder:text-slate-500 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition"
           placeholder="π.χ. name@example.com"
-          {% if locked or (submitted and not edit_mode) %}disabled{% endif %}>
+          {% if locked or (submitted and not can_edit_once) %}disabled{% endif %}>
       </div>
     </div>
   </div>
@@ -297,7 +293,7 @@ span.flatpickr-weekday,
             <input name="qty_{{ p.id }}" value="{% if v is none or v == '' %}{% elif ucode|string|trim|upper == 'PCS' %}{{ (v|round(0,'common'))|int }}{% else %}{{ v }}{% endif %}"
               class="qty-input"
               placeholder="0"
-              {% if locked or (submitted and not edit_mode) %}disabled{% endif %} inputmode="decimal">
+              {% if locked or (submitted and not can_edit_once) %}disabled{% endif %} inputmode="decimal">
           </td>
 </tr>
         {% endfor %}
@@ -318,7 +314,7 @@ span.flatpickr-weekday,
   <div class="bg-slate-900/40 border border-slate-800 rounded-2xl p-4">
     <label class="text-sm text-slate-300">Σχόλιο (προαιρετικό)</label>
     <textarea name="comment" class="mt-1 w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2" rows="3"
-      {% if locked or (submitted and not edit_mode) %}disabled{% endif %}>{{ comment }}</textarea>
+      {% if locked or (submitted and not can_edit_once) %}disabled{% endif %}>{{ comment }}</textarea>
   </div>
 
   <div class="flex justify-between items-center">
@@ -328,7 +324,7 @@ span.flatpickr-weekday,
       Clear
     </button>
 
-    <button class="bg-emerald-600 hover:bg-emerald-500 rounded-xl px-5 py-2 font-medium" {% if locked or (submitted and not edit_mode) %}disabled{% endif %}>
+    <button class="bg-emerald-600 hover:bg-emerald-500 rounded-xl px-5 py-2 font-medium" {% if locked or (submitted and not can_edit_once) %}disabled{% endif %}>
       Υποβολή
     </button>
   </div>
@@ -393,7 +389,7 @@ span.flatpickr-weekday,
                   </div>
                 </div>
               </button>
-              <button type="button" class="portal-hist-repeat bg-slate-900 border border-slate-800 hover:bg-slate-800 rounded-xl px-3 py-2 text-sm" data-copy="{{ ho['copy'] }}" {% if locked or (submitted and not edit_mode) %}disabled{% endif %}>
+              <button type="button" class="portal-hist-repeat bg-slate-900 border border-slate-800 hover:bg-slate-800 rounded-xl px-3 py-2 text-sm" data-copy="{{ ho['copy'] }}" {% if locked or (submitted and not can_edit_once) %}disabled{% endif %}>
                 Repeat Order
               </button>
             </div>
