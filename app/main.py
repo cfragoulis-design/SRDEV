@@ -7,7 +7,7 @@ from email.mime.text import MIMEText
 from datetime import datetime, date, timedelta, time as dtime
 from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, Request, Depends, Form, HTTPException
+from fastapi import FastAPI, Request, Depends, Form, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select, text, inspect, func, delete
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from .db import Base, engine, get_db
+from .db import Base, engine, get_db, SessionLocal
 from .models import AdminUser, Customer, CustomerSlugAlias, Unit, Product, CustomerProduct, Order, OrderLine, AuditLog, Announcement, AnnouncementRead, PrintJob
 from .security import hash_secret, verify_secret
 from .auth import sign_session, get_admin_username, get_portal_customer
@@ -2004,14 +2004,21 @@ def _send_brevo_email(target_email: str, subject: str, html_content: str):
     return response.status_code in (200, 201), response.text
 
 
-def _send_order_email_to_customer(customer: Customer, order: Order, order_date: date, lines: list[str], is_edit: bool = False):
-    target_email = (getattr(customer, "email", "") or "").strip()
+def _build_order_email(
+    target_email: str,
+    customer_name: str,
+    order_date: date,
+    lines: list[str],
+    customer_comment: str = "",
+    is_edit: bool = False,
+):
+    target_email = (target_email or "").strip()
     if not target_email:
-        return False, "missing_customer_email"
+        return None, None, "missing_customer_email"
 
     title = "Ενημέρωση παραγγελίας" if is_edit else "Νέα παραγγελία"
-    subject = f"{title} - {customer.name} - {order_date.strftime('%d-%m-%Y')}"
-    safe_comment = (getattr(order, "customer_comment", "") or "").strip()
+    subject = f"{title} - {customer_name} - {order_date.strftime('%d-%m-%Y')}"
+    safe_comment = (customer_comment or "").strip()
 
     if lines:
         items_html = "".join(f"<li>{line.replace('• ', '')}</li>" for line in lines)
@@ -2022,14 +2029,73 @@ def _send_order_email_to_customer(customer: Customer, order: Order, order_date: 
     html = f"""
     <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827">
       <h2>{title}</h2>
-      <p><strong>Κατάστημα:</strong> {customer.name}</p>
+      <p><strong>Κατάστημα:</strong> {customer_name}</p>
       <p><strong>Ημερομηνία παράδοσης:</strong> {order_date.strftime('%d-%m-%Y')}</p>
       {comment_html}
       <h3>Προϊόντα</h3>
       <ul>{items_html}</ul>
     </div>
     """
-    return _send_brevo_email(target_email, subject, html)
+    return subject, html, None
+
+
+def _send_order_email_to_customer(customer: Customer, order: Order, order_date: date, lines: list[str], is_edit: bool = False):
+    subject, html, error = _build_order_email(
+        target_email=(getattr(customer, "email", "") or "").strip(),
+        customer_name=getattr(customer, "name", ""),
+        order_date=order_date,
+        lines=lines,
+        customer_comment=(getattr(order, "customer_comment", "") or "").strip(),
+        is_edit=is_edit,
+    )
+    if error:
+        return False, error
+    return _send_brevo_email((getattr(customer, "email", "") or "").strip(), subject, html)
+
+
+def _send_order_email_background(
+    target_email: str,
+    customer_name: str,
+    order_date_iso: str,
+    lines: list[str],
+    customer_comment: str,
+    is_edit: bool,
+    actor_slug: str,
+):
+    try:
+        order_date = date.fromisoformat(order_date_iso)
+        subject, html, error = _build_order_email(
+            target_email=target_email,
+            customer_name=customer_name,
+            order_date=order_date,
+            lines=lines,
+            customer_comment=customer_comment,
+            is_edit=is_edit,
+        )
+        if error:
+            ok, info = False, error
+        else:
+            ok, info = _send_brevo_email(target_email, subject, html)
+        print("ORDER EMAIL BACKGROUND RESPONSE:", ok, info)
+        try:
+            db = SessionLocal()
+            audit(
+                db,
+                actor=f"portal:{actor_slug}",
+                action=("order_edit_email_bg" if is_edit else "order_submit_email_bg"),
+                payload=f"{order_date_iso} ok={ok} info={str(info)[:300]}",
+            )
+            db.close()
+        except Exception as audit_exc:
+            print("ORDER EMAIL BACKGROUND AUDIT ERROR:", repr(audit_exc))
+    except Exception as exc:
+        print("ORDER EMAIL BACKGROUND ERROR:", repr(exc))
+        try:
+            db = SessionLocal()
+            audit(db, actor=f"portal:{actor_slug}", action="order_email_bg_error", payload=f"{order_date_iso} {repr(exc)[:300]}")
+            db.close()
+        except Exception:
+            pass
 
 
 @app.get("/admin/customers", response_class=HTMLResponse)
@@ -2800,7 +2866,7 @@ def portal_change_pin(
     return RedirectResponse(url=f"/p/{slug}/order{date_q}{'&' if date_q else '?'}pwd_msg=Το+PIN+άλλαξε+επιτυχώς.", status_code=303)
 
 @app.post("/p/{slug}/order")
-async def portal_order_post(slug: str, request: Request, db: Session = Depends(get_db), date_str: str = Form(...), comment: str = Form("")):
+async def portal_order_post(slug: str, request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db), date_str: str = Form(...), comment: str = Form("")):
     c, canon = _portal_customer_by_slug_or_alias(db, slug)
     if not c:
         raise HTTPException(404)
@@ -2955,14 +3021,17 @@ async def portal_order_post(slug: str, request: Request, db: Session = Depends(g
     else:
         msg_parts.append(f"Items: {total_items}")
 
-    # Send the submitted/edited order by email to the store/customer email saved on the customer card.
-    try:
-        ok, info = _send_order_email_to_customer(c, o, d, lines, is_edit=is_portal_edit)
-        print("ORDER EMAIL RESPONSE:", ok, info)
-        audit(db, actor=f"portal:{slug}", action=("order_edit_email" if is_portal_edit else "order_submit_email"), payload=f"{d.isoformat()} ok={ok} info={str(info)[:300]}")
-    except Exception as exc:
-        print("ORDER EMAIL ERROR:", repr(exc))
-        audit(db, actor=f"portal:{slug}", action="order_email_error", payload=f"{d.isoformat()} {repr(exc)[:300]}")
+    # Queue the submitted/edited order email in the background so the portal redirects immediately.
+    background_tasks.add_task(
+        _send_order_email_background,
+        (getattr(c, "email", "") or "").strip(),
+        str(getattr(c, "name", "") or ""),
+        d.isoformat(),
+        list(lines),
+        order_comment,
+        bool(is_portal_edit),
+        slug,
+    )
 
     send_telegram("\n".join(msg_parts))
     return RedirectResponse(url=f"/p/{slug}/order?date_str={d.isoformat()}", status_code=302)
